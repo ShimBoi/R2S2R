@@ -16,11 +16,11 @@ import pathlib
 
 import openpi.models.model as _model
 import openpi.transforms as _transforms
+import openpi.policies.droid_policy as droid_policy
 from openpi.training.config import DataConfig, DataConfigFactory, ModelTransformFactory
 from typing_extensions import override
 
 from rlinf.models.embodiment.openpi.policies import isaaclab_policy
-
 
 @dataclasses.dataclass(frozen=True)
 class LeRobotIsaacLabStackCubeDataConfig(DataConfigFactory):

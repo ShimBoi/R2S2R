@@ -1,0 +1,32 @@
+env_type: robolab
+total_num_envs: null
+auto_reset: True
+ignore_terminations: False
+use_rel_reward: False
+seed: 0
+group_size: 1
+
+reward_coef: 1.0
+use_fixed_reset_state_ids: False
+max_steps_per_rollout_epoch: 150
+max_episode_steps: 150 # max episode steps for truncation
+
+
+video_cfg:
+  save_video: False
+  info_on_video: True
+  fps: 20
+  video_base_dir: ${runner.logger.log_path}/video/train
+
+init_params:
+  id: "ScissorsInBinTask"
+  task_file: "scissors_in_bin_task.py"
+  task_description: "Pick up the scissors and place them in the bin"
+  num_envs: null  # filled in at runtime from total_num_envs / num_processes
+
+  over_shoulder_cam:
+    height: 224
+    width: 224
+  wrist_cam:
+    height: 224
+    width: 224

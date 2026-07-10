@@ -1505,3 +1505,50 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         if len(lr_list) > 1:
             metric_data["critic/lr"] = lr_list[1]
         append_to_dict(metrics, metric_data)
+
+    def save_checkpoint(self, save_path: str, step: int = 0) -> None:
+        """LoRA-aware checkpoint save.
+
+        When is_lora=True, saves only the LoRA adapter weights (adapter_model.bin)
+        and the optimizer state — not the full frozen base model.  This keeps
+        checkpoints small and makes them directly loadable via lora_path.
+
+        When is_lora=False, falls back to the standard FSDPModelManager full-model
+        checkpoint.
+        """
+        is_lora = self.cfg.actor.model.get("is_lora", False)
+
+
+        if not is_lora:
+            super().save_checkpoint(save_path, step)
+            return
+
+        # LoRA-only save -------------------------------------------------------
+        torch.distributed.barrier()
+
+        from peft.utils import get_peft_model_state_dict
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, StateDictType
+        from torch.distributed.fsdp import FullStateDictConfig
+
+        from peft.utils import get_peft_model_state_dict
+
+        save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+        with FSDP.state_dict_type(
+            self.model, StateDictType.FULL_STATE_DICT, save_policy
+        ):
+            cpu_state = get_peft_model_state_dict(self.model, self.model.state_dict())
+
+        if self._rank == 0:
+            import os
+            os.makedirs(save_path, exist_ok=True)
+            torch.save(cpu_state, os.path.join(save_path, "adapter_model.bin"))
+            peft_model = self.model
+            while hasattr(peft_model, "_fsdp_wrapped_module"):
+                peft_model = peft_model._fsdp_wrapped_module
+            if hasattr(peft_model, "peft_config"):
+                peft_model.peft_config["default"].save_pretrained(save_path)
+            self._logger.info(
+                f"[LoRA] Saved adapter weights to {save_path}/adapter_model.bin"
+            )
+
+        torch.distributed.barrier()

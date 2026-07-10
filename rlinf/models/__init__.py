@@ -256,6 +256,7 @@ def get_model(cfg: DictConfig):
 
     if cfg.is_lora:
         from peft import LoraConfig, PeftModel, get_peft_model
+        print(f"[INFO] Applying LoRA to model {model_type} with rank {cfg.lora_rank}")
 
         if not hasattr(cfg, "lora_path") or cfg.lora_path is None:
             lora_config = LoraConfig(
@@ -282,17 +283,17 @@ def get_model(cfg: DictConfig):
                 ],
                 init_lora_weights="gaussian",
             )
-            if SupportedModel(model_type) in (
-                SupportedModel.OPENPI,
-                SupportedModel.CFG_MODEL,
-            ):
-                module_to_lora = model.paligemma_with_expert.paligemma
-                module_to_lora = get_peft_model(module_to_lora, lora_config)
-                tag_vlm_subtree(model, False)
-                tag_vlm_subtree(module_to_lora, True)
-                model.paligemma_with_expert.paligemma = module_to_lora
-            else:
-                model = get_peft_model(model, lora_config)
+            # if SupportedModel(model_type) in (
+            #     SupportedModel.OPENPI,
+            #     SupportedModel.CFG_MODEL,
+            # ):
+            #     module_to_lora = model.paligemma_with_expert.paligemma
+            #     module_to_lora = get_peft_model(module_to_lora, lora_config)
+            #     tag_vlm_subtree(model, False)
+            #     tag_vlm_subtree(module_to_lora, True)
+            #     model.paligemma_with_expert.paligemma = module_to_lora
+            # else:
+            model = get_peft_model(model, lora_config)
         else:
             model = PeftModel.from_pretrained(model, cfg.lora_path, is_trainable=True)
 

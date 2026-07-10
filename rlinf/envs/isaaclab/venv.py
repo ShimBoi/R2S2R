@@ -16,6 +16,7 @@ from multiprocessing.connection import Connection
 
 import torch
 import torch.multiprocessing as mp
+import numpy as np
 
 from .utils import CloudpickleWrapper
 
@@ -50,6 +51,8 @@ def _torch_worker(
                 obs_queue.put(reset_result)
             elif cmd == "step":
                 input_action = action_queue.get()
+                if isinstance(input_action, np.ndarray):
+                    input_action = torch.from_numpy(input_action).to(device)
                 step_result = isaac_env.step(input_action)
                 obs_queue.put(step_result)
             elif cmd == "close":

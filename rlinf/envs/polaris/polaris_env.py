@@ -59,6 +59,8 @@ class PolarisEnv(IsaaclabBaseEnv):
             worker_info,
         )
 
+        self._last_valid_splat = None
+
     def _make_env_function(self):
         """Return a factory that creates the PolaRiS env inside a subprocess.
 
@@ -97,6 +99,7 @@ class PolarisEnv(IsaaclabBaseEnv):
 
             sim_app = AppLauncher(headless=True, enable_cameras=True).app
 
+            # import isaaclab.sim as sim_utils
             import polaris.environments  # noqa: F401
             from polaris.utils import load_eval_initial_conditions, parse_env_cfg
 
@@ -116,6 +119,8 @@ class PolarisEnv(IsaaclabBaseEnv):
             )
             env_cfg.seed = seed
 
+            # env_cfg.scene.robot.spawn.semantic_tags = [("class", "raytraced")]
+
             if hasattr(cfg.init_params, "episode_length_s"):
                 env_cfg.episode_length_s = cfg.init_params.episode_length_s
             if hasattr(cfg.init_params, "wrist_cam"):
@@ -130,6 +135,16 @@ class PolarisEnv(IsaaclabBaseEnv):
                         getattr(
                             env_cfg.scene, cam_name
                         ).width = cfg.init_params.table_cam.width
+            # if hasattr(env_cfg.scene, "external_cam"):
+            #     env_cfg.scene.external_cam.offset.pos = (-0.10, 0.57, 0.76)
+            #     env_cfg.scene.external_cam.offset.rot = (-0.350, -0.220, 0.380, 0.825)
+            #     # Force RoboLab OverShoulderLeftCameraCfg intrinsics for sim-to-sim transfer
+            #     env_cfg.scene.external_cam.spawn = sim_utils.PinholeCameraCfg(
+            #         focal_length=2.1,
+            #         focus_distance=28.0,
+            #         horizontal_aperture=5.376,
+            #         vertical_aperture=3.024,
+            #     )
 
             real_env = gym.make(task_name, cfg=env_cfg)
 
@@ -153,9 +168,12 @@ class PolarisEnv(IsaaclabBaseEnv):
 
                 def reset(self, seed=None, env_ids=None):
                     self._chunk_step_counter = 0
+                    self._last_valid_splat = None
                     ic = self.initial_conditions[self._ic_idx]
                     obs, info = self.env.reset(object_positions=ic, expensive=True)
                     self._ic_idx = (self._ic_idx + 1) % len(self.initial_conditions)
+                    if "splat" in obs:
+                        self._last_valid_splat = obs["splat"]
                     return obs, info
 
                 def step(self, actions):
@@ -178,11 +196,18 @@ class PolarisEnv(IsaaclabBaseEnv):
 
                         if needs_render:
                             try:
-                                obs["splat"] = self.env.custom_render(expensive=True)
+                                splat = self.env.custom_render(expensive=True)
+                                obs["splat"] = splat
+                                self._last_valid_splat = splat
                             except RuntimeError as e:
                                 get_logger().warning(
                                     f"Expensive render failed, using cheap render: {e}"
                                 )
+                                if self._last_valid_splat is not None:
+                                    obs["splat"] = self._last_valid_splat
+                        else:
+                            if self._last_valid_splat is not None:
+                                obs["splat"] = self._last_valid_splat
 
                         self._chunk_step_counter += 1
                         return obs, rew, done, trunc, info
@@ -261,6 +286,7 @@ class PolarisEnv(IsaaclabBaseEnv):
             if gripper_pos.dim() == 1:
                 gripper_pos = gripper_pos.unsqueeze(0)
             states = torch.cat([arm_joint_pos, gripper_pos], dim=-1).float()
+            gripper_pos = gripper_pos / (np.pi / 4)
         else:
             states = torch.zeros(
                 (self.num_envs, 8), dtype=torch.float32, device=self.device
@@ -346,3 +372,49 @@ class PolarisEnv(IsaaclabBaseEnv):
     @property
     def total_num_group_envs(self):
         return self.num_envs // self.cfg.group_size
+
+if __name__ == "__main__":
+    import argparse
+    from isaaclab.app import AppLauncher
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--env", default="DROID-MoveLatteCup")
+    parser.add_argument("--usd_file", default="/scratch/cluster/jshim12/RLinf/PolaRiS-Hub/move_latte_cup/scene.usda")
+    parser.add_argument("--output", default="frame.png")
+    args = parser.parse_args()
+
+    sim_app = AppLauncher(headless=True, enable_cameras=True).app
+
+    import gymnasium as gym
+    import numpy as np
+    from PIL import Image
+    import polaris.environments  # noqa: F401
+    from polaris.utils import parse_env_cfg, load_eval_initial_conditions
+    import isaaclab.sim as sim_utils
+
+    env_cfg = parse_env_cfg(args.env, usd_file=args.usd_file, device="cuda", num_envs=1, use_fabric=True)
+
+    # Left-side camera override
+    # if hasattr(env_cfg.scene, "external_cam"):
+    #     env_cfg.scene.external_cam.offset.pos = (0.05, 0.57, 0.66)
+    #     env_cfg.scene.external_cam.offset.rot = (-0.393, -0.195, 0.399, 0.805)
+
+    env = gym.make(args.env, cfg=env_cfg)
+
+    _, initial_conditions = load_eval_initial_conditions(env.usd_file)
+    obs, _ = env.reset(object_positions=initial_conditions[0], expensive=True)
+    print('pos:', env_cfg.scene.external_cam.offset.pos)
+    print('rot:', env_cfg.scene.external_cam.offset.rot)
+    
+    splat = obs.get("splat", {})
+    ext = splat.get("external_cam")
+    wrist = splat.get("wrist_cam")
+
+    frames = [np.asarray(f) for f in [ext, wrist] if f is not None]
+    if frames:
+        combined = np.concatenate(frames, axis=1)
+        Image.fromarray(combined).save(args.output)
+        print(f"Saved → {args.output}")
+
+    env.close()
+    sim_app.close()

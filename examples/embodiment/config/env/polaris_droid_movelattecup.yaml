@@ -16,14 +16,14 @@ max_episode_steps: 450
 video_cfg:
   save_video: False
   info_on_video: True
-  fps: 10
+  fps: 30
   video_base_dir: ${runner.logger.log_path}/video/train
 
 init_params:
   id: "DROID-MoveLatteCup"
   num_envs: null
-  episode_length_s: 30
-  task_description: "put the latte art cup on top of the cutting board"
+  episode_length_s: 50
+  task_description: "Pick up the coffee mug and place it on the cutting board"
   usd_file: ${oc.decode:${oc.env:POLARIS_DATA_PATH}}/move_latte_cup/scene.usda
   dataset_path: ${oc.decode:${oc.env:POLARIS_DATA_PATH}}
   open_loop_horizon: ${actor.model.num_action_chunks}

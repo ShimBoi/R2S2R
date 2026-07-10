@@ -13,9 +13,11 @@
 # limitations under the License.
 
 from .tasks.stack_cube import IsaaclabStackCubeEnv
+from .tasks.robolab_task import RoboLabDroidEnv
 
 REGISTER_ISAACLAB_ENVS = {
     "Isaac-Stack-Cube-Franka-IK-Rel-Visuomotor-Rewarded-v0": IsaaclabStackCubeEnv,
+    "RoboLab-Droid-v0": RoboLabDroidEnv
 }
 
 __all__ = [list(REGISTER_ISAACLAB_ENVS.keys())]
