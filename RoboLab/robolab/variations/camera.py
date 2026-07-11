@@ -26,7 +26,7 @@ class PolarisDefaultCameraCfg:
             vertical_aperture=1.4721,
         ),
         offset=TiledCameraCfg.OffsetCfg(
-            pos=(-0.01, -0.33, 0.48), rot=(0.76, 0.43, -0.24, -0.42), convention="opengl"
+            pos=(-0.01, -0.33, 0.48), rot=(0.76, 0.43, -0.24, -0.42), convention="ros"
         ),
     )
 

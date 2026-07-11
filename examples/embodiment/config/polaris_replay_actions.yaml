@@ -1,0 +1,173 @@
+# Pass 2: replay the exact action stream collected in pass 1 (robolab_collect_actions.yaml)
+# inside PolaRiS. Same worker-group pipeline as pass 1 -- only the rollout worker
+# class differs (ReplayRolloutWorker instead of MultiStepRolloutWorker), selected
+# automatically by eval_actions.py because `rollout.replay_pkl` is set below.
+#
+# Run with:
+#   python eval_actions.py --config-name polaris_replay_actions \
+#       rollout.replay_pkl=/path/to/rank_0_env_0_episode_0_step_150_success.pkl
+
+defaults:
+  - env/polaris_droid_movelattecup@env.train
+  - env/polaris_droid_movelattecup@env.eval
+  - model/pi0_5@actor.model
+  - training_backend/fsdp@actor.fsdp_config
+  - weight_syncer/patch_syncer@weight_syncer
+  - override hydra/job_logging: stdout
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  searchpath:
+    - file://${oc.env:EMBODIED_PATH}/config/
+
+cluster:
+  num_nodes: 1
+  component_placement:
+    actor,env,rollout: all
+
+runner:
+  task_type: embodied
+  logger:
+    log_path: "../results"
+    project_name: rlinf
+    experiment_name: "sim2sim_polaris_replay"
+    logger_backends: ["tensorboard"]
+
+  max_epochs: 1
+  max_steps: -1
+
+  only_eval: True
+  val_check_interval: -1
+  save_interval: -1
+
+  resume_dir: null
+  ckpt_path: null
+
+algorithm:
+  normalize_advantages: True
+  kl_penalty: kl
+  group_size: 1
+  reward_coef: 1.0
+  rollout_epoch: 1
+  eval_rollout_epoch: 1        # one rollout for the verification episode
+
+  reward_type: chunk_level
+  logprob_type: chunk_level
+  entropy_type: token_level
+
+  update_epoch: 4
+  adv_type: gae
+  loss_type: actor_critic
+  loss_agg_func: "token-mean"
+  kl_beta: 0.0
+  entropy_bonus: 0
+  clip_ratio_high: 0.2
+  clip_ratio_low: 0.2
+  clip_ratio_c: 3.0
+  value_clip: 0.2
+  huber_delta: 10.0
+
+  gamma: 0.99
+  gae_lambda: 0.95
+
+  sampling_params:
+    do_sample: True
+    temperature_train: 1.0
+    temperature_eval: 0.6
+    top_k: 50
+    top_p: 1.0
+    repetition_penalty: 1.0
+    add_BOS: False
+
+  length_params:
+    max_new_token: null
+    max_length: 1024
+    min_length: 1
+
+env:
+  group_name: "EnvGroup"
+  train:
+    total_num_envs: 1
+    max_episode_steps: 150
+    max_steps_per_rollout_epoch: 150
+    seed: 42
+  eval:
+    total_num_envs: 8
+    max_episode_steps: 300
+    max_steps_per_rollout_epoch: 300
+    auto_reset: False
+    ignore_terminations: False
+    seed: 42
+    video_cfg:
+      save_video: True
+      info_on_video: True
+      video_base_dir: ${runner.logger.log_path}/video/eval
+    init_params:
+      # the black-bar fix: render natively at the same square resolution robolab
+      # uses, instead of falling into resize_with_pad's letterbox branch.
+      table_cam: { height: 224, width: 224 }
+      wrist_cam: { height: 224, width: 224 }
+
+rollout:
+  group_name: "RolloutGroup"
+  backend: "huggingface"
+  enable_offload: True
+  pipeline_stage_num: 1
+  replay_pkl: null   # set via CLI: rollout.replay_pkl=/path/to/episode.pkl from pass 1
+
+  model:
+    model_path: "./model/pi05_droid_jointpos"
+    precision: ${actor.model.precision}
+
+actor:
+  group_name: "ActorGroup"
+  training_backend: "fsdp"
+  micro_batch_size: 4
+  global_batch_size: 64
+  seed: 42
+  enable_offload: False
+
+  model:
+    model_path: "./model/pi05_droid_jointpos"
+    model_type: "openpi"
+    action_dim: 7
+    num_action_chunks: 15
+    num_steps: 5
+    openpi:
+      config_name: "pi05_droid_polaris"
+      num_images_in_input: 2
+      noise_level: 0.5
+      joint_logprob: False
+      num_steps: ${actor.model.num_steps}
+
+    is_lora: True
+    lora_rank: 8
+    lora_path: null   # unused by ReplayRolloutWorker's predict(), but init_worker()
+                       # still loads this model -- keep consistent with pass 1
+
+  optim:
+    lr: 5.0e-6
+    value_lr: 1.0e-4
+    adam_beta1: 0.9
+    adam_beta2: 0.95
+    adam_eps: 1.0e-08
+    clip_grad: 1.0
+    weight_decay: 0.01
+    critic_warmup_steps: 0
+
+  fsdp_config:
+    strategy: "fsdp"
+    sharding_strategy: "no_shard"
+    gradient_checkpointing: False
+    mixed_precision:
+      param_dtype: ${actor.model.precision}
+      reduce_dtype: ${actor.model.precision}
+      buffer_dtype: ${actor.model.precision}
+
+reward:
+  use_reward_model: False
+
+critic:
+  use_critic_model: False

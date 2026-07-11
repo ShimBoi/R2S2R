@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 import isaaclab.sim.utils as sim_utils
 import isaaclab.utils.math as math_utils
 import torch
@@ -407,8 +409,14 @@ def reset_pose_to_presets(
     default) or a 7-tuple ``(x, y, z, qw, qx, qy, qz)`` (explicit
     orientation in Isaac Lab wxyz convention).
 
-    A preset is chosen independently at random for each env being reset.
-    Velocities are always zeroed.
+    A preset is chosen independently at random for each env being reset,
+    unless the ``ROBOLAB_FORCE_PRESET_IDX`` environment variable is set, in
+    which case every env being reset uses that exact preset index instead of
+    a random draw. This exists for sim-to-sim verification, where RoboLab
+    and PolaRiS need to be reset to the identical initial condition (indices
+    are aligned 1:1 between this file's ``_PRESET_POSES`` and PolaRiS's
+    ``initial_conditions.json`` -- see the docstring above ``_PRESET_POSES``
+    in mug_on_cutting_board_task.py). Velocities are always zeroed.
 
     Args:
         env: The environment instance.
@@ -429,8 +437,17 @@ def reset_pose_to_presets(
             _reset_assets_to_default(env, env_ids, default_pose_assets)
 
     num_presets = len(presets)
-    # Sample one random preset index per env being reset
-    preset_indices = torch.randint(0, num_presets, (len(env_ids),))
+    forced_idx = os.environ.get("ROBOLAB_FORCE_PRESET_IDX")
+    if forced_idx is not None:
+        forced_idx = int(forced_idx)
+        assert 0 <= forced_idx < num_presets, (
+            f"ROBOLAB_FORCE_PRESET_IDX={forced_idx} out of range for "
+            f"{num_presets} presets."
+        )
+        preset_indices = torch.full((len(env_ids),), forced_idx, dtype=torch.int64)
+    else:
+        # Sample one random preset index per env being reset
+        preset_indices = torch.randint(0, num_presets, (len(env_ids),))
 
     for i, object_name in enumerate(asset_names):
         asset: RigidObject | Articulation = env.scene[object_name]
@@ -440,7 +457,12 @@ def reset_pose_to_presets(
         orientations = []
         for idx, env_id in enumerate(env_ids):
             env_id_int = env_id.item() if isinstance(env_id, torch.Tensor) else int(env_id)
-            pose = presets[preset_indices[idx].item()][i]
+            preset_idx_used = preset_indices[idx].item()
+            pose = presets[preset_idx_used][i]
+            print(
+                f"[reset_pose_to_presets] env_id={env_id_int} asset={object_name} "
+                f"preset_idx={preset_idx_used} raw_pose(x,y,z,qw,qx,qy,qz)={tuple(pose)}"
+            )
             pos = torch.tensor(pose[:3], device=asset.device, dtype=torch.float32)
             pos = pos + env.scene.env_origins[env_id_int]
             positions.append(pos)

@@ -170,6 +170,7 @@ class PolarisEnv(IsaaclabBaseEnv):
                     self._chunk_step_counter = 0
                     self._last_valid_splat = None
                     ic = self.initial_conditions[self._ic_idx]
+                    print(f"[PolarisEnv.reset] ic_idx={self._ic_idx} object_positions={ic}")
                     obs, info = self.env.reset(object_positions=ic, expensive=True)
                     self._ic_idx = (self._ic_idx + 1) % len(self.initial_conditions)
                     if "splat" in obs:
@@ -402,10 +403,52 @@ if __name__ == "__main__":
     env = gym.make(args.env, cfg=env_cfg)
 
     _, initial_conditions = load_eval_initial_conditions(env.usd_file)
-    obs, _ = env.reset(object_positions=initial_conditions[0], expensive=True)
-    print('pos:', env_cfg.scene.external_cam.offset.pos)
-    print('rot:', env_cfg.scene.external_cam.offset.rot)
-    
+
+    # Force reset state 0 specifically, so this is directly comparable against
+    # a RoboLab reset forced to ROBOLAB_FORCE_PRESET_IDX=0.
+    RESET_IDX = 0
+    obs, _ = env.reset(object_positions=initial_conditions[RESET_IDX], expensive=True)
+    print(f"Reset to initial_conditions[{RESET_IDX}] = {initial_conditions[RESET_IDX]}")
+    print('cam pos:', env_cfg.scene.external_cam.offset.pos)
+    print('cam rot:', env_cfg.scene.external_cam.offset.rot)
+
+    # `gym.make` wraps the raw ManagerBasedRLSplatEnv -- unwrap to reach `.scene`,
+    # the same attribute reset_pose_to_presets reads on the RoboLab side.
+    base_env = env.unwrapped
+
+    print("\n=== Scene entities available (use this to confirm the robot's key name) ===")
+    try:
+        scene_keys = list(base_env.scene.keys())
+        print(scene_keys)
+    except Exception as e:
+        print(f"Could not list scene keys: {e}")
+        scene_keys = []
+
+    def _print_asset_pose(name: str):
+        try:
+            asset = base_env.scene[name]
+            # root_pos_w / root_quat_w are the standard IsaacLab per-asset world-frame
+            # accessors (same data reset_pose_to_presets writes on the RoboLab side).
+            pos = asset.data.root_pos_w[0].detach().cpu().numpy()
+            quat = asset.data.root_quat_w[0].detach().cpu().numpy()  # (w, x, y, z)
+            print(f"  {name:20s} pos={pos.tolist()}  quat(wxyz)={quat.tolist()}")
+        except Exception as e:
+            print(f"  {name:20s} FAILED: {e}")
+
+    print("\n=== World-frame poses after reset (compare against RoboLab's logged poses) ===")
+    # Try the two known object names directly (from the scene.usda you already
+    # inspected) plus a guess at the robot's key -- if "robot" is wrong, check the
+    # scene_keys list printed above and rerun with the right name.
+    for candidate in ["robot", "cuttingboard_eval", "latteartcup_eval"]:
+        _print_asset_pose(candidate)
+
+    # Also print every other entity found, in case "robot" isn't the right key.
+    other_keys = [k for k in scene_keys if k not in ("robot", "cuttingboard_eval", "latteartcup_eval")]
+    if other_keys:
+        print("\n=== Other scene entities (in case the robot is named differently) ===")
+        for k in other_keys:
+            _print_asset_pose(k)
+
     splat = obs.get("splat", {})
     ext = splat.get("external_cam")
     wrist = splat.get("wrist_cam")
