@@ -93,6 +93,7 @@ env:
     use_fixed_reset_state_ids: True
     auto_reset: False
     ignore_terminations: False
+    eval_only: False
     seed: 42
 
   eval:
@@ -102,6 +103,7 @@ env:
     auto_reset: False
     ignore_terminations: False
     use_fixed_reset_state_ids: True
+    eval_only: True  # Use held-out test presets/backgrounds (sim2sim transfer eval).
     video_cfg:
       save_video: True
       info_on_video: True

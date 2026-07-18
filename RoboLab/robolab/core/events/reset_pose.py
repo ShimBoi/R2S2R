@@ -401,6 +401,7 @@ def reset_pose_to_presets(
     presets: list[list[tuple]],
     asset_cfg: list[SceneEntityCfg] | SceneEntityCfg | list[str] | str,
     reset_to_default_otherwise: bool = True,
+    preset_indices_pool: list[int] | None = None,
 ):
     """Reset assets to a randomly sampled preset pose.
 
@@ -426,6 +427,12 @@ def reset_pose_to_presets(
         asset_cfg: The asset(s) to place.  Order must match poses in each preset.
         reset_to_default_otherwise: If True, reset all other assets to their
             default pose first.
+        preset_indices_pool: Optional subset of indices into ``presets`` to
+            restrict random sampling to (e.g. a train/test split). Indices
+            still refer to positions in the full ``presets`` list, so
+            ``ROBOLAB_FORCE_PRESET_IDX`` alignment with PolaRiS is
+            unaffected and takes precedence over this pool when set.
+            If None, sampling is uniform over all of ``presets``.
     """
     asset_names = _parse_asset_cfg(asset_cfg)
     sampled_pose_assets = set(asset_names)
@@ -446,8 +453,10 @@ def reset_pose_to_presets(
         )
         preset_indices = torch.full((len(env_ids),), forced_idx, dtype=torch.int64)
     else:
-        # Sample one random preset index per env being reset
-        preset_indices = torch.randint(0, num_presets, (len(env_ids),))
+        pool = preset_indices_pool if preset_indices_pool is not None else list(range(num_presets))
+        pool_tensor = torch.tensor(pool, dtype=torch.int64)
+        # Sample one random preset index (from the pool) per env being reset
+        preset_indices = pool_tensor[torch.randint(0, len(pool), (len(env_ids),))]
 
     for i, object_name in enumerate(asset_names):
         asset: RigidObject | Articulation = env.scene[object_name]

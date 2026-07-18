@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 from dataclasses import dataclass
 
 import isaaclab.envs.mdp as mdp
@@ -224,6 +225,14 @@ _PRESET_POSES = [
      (0.386105, -0.194475, 0.15, 0.870554, 0.0, 0.0, 0.492073)]
 ]
 
+# Train/test split of the 100 preset poses above, for sim2sim generalization
+# testing: train samples only from the first half, test (held-out) samples
+# only from the second half. Indices still refer to positions in the full
+# _PRESET_POSES list (aligned with PolaRiS), so ROBOLAB_FORCE_PRESET_IDX
+# sim2sim verification is unaffected by this split.
+_TRAIN_PRESET_INDICES = list(range(0, 50))
+_TEST_PRESET_INDICES = list(range(50, 100))
+
 _BG_POOL_FILES = [
     "home_office.exr",
     "empty_warehouse.hdr",
@@ -234,9 +243,21 @@ _BG_POOL_FILES = [
 ]
 _BG_POOL = [p for fn in _BG_POOL_FILES if (p := find_background_files(BACKGROUND_ASSET_DIR, fn)) is not None]
 
+# Held-out backgrounds, only used for eval (see _select_randomization below),
+# to test generalization to unseen backgrounds.
+_TEST_BG_POOL_FILES = [
+    "aircraft_workshop_01_2k.hdr",
+    "garage_2k.hdr",
+    "machine_shop_01_2k.hdr",
+    "reading_room_2k.hdr",
+    "industrial_pipe_and_valve_01_2k.hdr",
+    "small_hangar_01_2k.hdr",
+]
+_TEST_BG_POOL = [p for fn in _TEST_BG_POOL_FILES if (p := find_background_files(BACKGROUND_ASSET_DIR, fn)) is not None]
+
 
 @configclass
-class MugBoardRandomization:
+class MugBoardRandomizationTrain:
     randomize_background = EventTerm(
         func=randomize_dome_light_texture,
         mode="reset",
@@ -249,8 +270,44 @@ class MugBoardRandomization:
             "presets": _PRESET_POSES,
             "asset_cfg": ["cutting_board_a", "ceramic_mug"],
             "reset_to_default_otherwise": True,
+            "preset_indices_pool": _TRAIN_PRESET_INDICES,
         },
     )
+
+
+@configclass
+class MugBoardRandomizationTest:
+    """Held-out backgrounds and preset poses, for sim2sim transfer evaluation."""
+
+    randomize_background = EventTerm(
+        func=randomize_dome_light_texture,
+        mode="reset",
+        params={"background_files": _TEST_BG_POOL},
+    )
+    randomize_init_pose = EventTerm(
+        func=reset_pose_to_presets,
+        mode="reset",
+        params={
+            "presets": _PRESET_POSES,
+            "asset_cfg": ["cutting_board_a", "ceramic_mug"],
+            "reset_to_default_otherwise": True,
+            "preset_indices_pool": _TEST_PRESET_INDICES,
+        },
+    )
+
+
+def _select_randomization():
+    """Pick the train or held-out test randomization config.
+
+    Controlled by the ROBOLAB_EVAL_ONLY environment variable, which the
+    embodiment entry scripts (eval_embodied_agent.py / train_embodied_agent.py)
+    set automatically whenever `runner.only_eval` is True -- e.g. any run
+    launched via eval_embodiment.sh. This is what makes eval runs use the
+    held-out test set instead of the training pool.
+    """
+    if os.environ.get("ROBOLAB_EVAL_ONLY", "0") == "1":
+        return MugBoardRandomizationTest()
+    return MugBoardRandomizationTrain()
 
 
 @configclass
@@ -272,7 +329,7 @@ class MugOnCuttingBoardTask(Task):
     contact_object_list = ["ceramic_mug", "cutting_board_a", "table"]
     scene = import_scene("mug_on_cutting_board.usda", contact_object_list)
     terminations = MugOnCuttingBoardTerminations
-    events = MugBoardRandomization
+    events = _select_randomization
     instruction = {
         "default": "Pick up the coffee mug and place it on the cutting board",
         "vague": "Put the cup on the board",
