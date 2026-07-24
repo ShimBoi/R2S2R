@@ -157,11 +157,11 @@ class PolarisEnv(IsaaclabBaseEnv):
                 ``SubProcIsaacLabEnv._torch_worker`` (``reset`` / ``step`` /
                 ``close`` / ``device``)."""
 
-                def __init__(self, open_loop_horizon=None):
+                def __init__(self, open_loop_horizon=None, seed=None):
                     self.env = real_env
                     self.language_instruction = language_instruction
                     self.initial_conditions = initial_conditions
-                    self._ic_idx = 0
+                    self._rng = np.random.default_rng(seed)
                     self.device = "cuda"
                     self._chunk_step_counter = 0
                     self._open_loop_horizon = open_loop_horizon
@@ -169,10 +169,10 @@ class PolarisEnv(IsaaclabBaseEnv):
                 def reset(self, seed=None, env_ids=None):
                     self._chunk_step_counter = 0
                     self._last_valid_splat = None
-                    ic = self.initial_conditions[self._ic_idx]
-                    print(f"[PolarisEnv.reset] ic_idx={self._ic_idx} object_positions={ic}")
+                    ic_idx = int(self._rng.integers(len(self.initial_conditions)))
+                    ic = self.initial_conditions[ic_idx]
+                    print(f"[PolarisEnv.reset] ic_idx={ic_idx} object_positions={ic}")
                     obs, info = self.env.reset(object_positions=ic, expensive=True)
-                    self._ic_idx = (self._ic_idx + 1) % len(self.initial_conditions)
                     if "splat" in obs:
                         self._last_valid_splat = obs["splat"]
                     return obs, info
@@ -227,7 +227,7 @@ class PolarisEnv(IsaaclabBaseEnv):
                 def close(self):
                     self.env.close()
 
-            inner_env = _InnerPolarisEnv(open_loop_horizon=open_loop_horizon)
+            inner_env = _InnerPolarisEnv(open_loop_horizon=open_loop_horizon, seed=seed)
 
             return inner_env, sim_app
 
@@ -287,7 +287,6 @@ class PolarisEnv(IsaaclabBaseEnv):
             if gripper_pos.dim() == 1:
                 gripper_pos = gripper_pos.unsqueeze(0)
             states = torch.cat([arm_joint_pos, gripper_pos], dim=-1).float()
-            gripper_pos = gripper_pos / (np.pi / 4)
         else:
             states = torch.zeros(
                 (self.num_envs, 8), dtype=torch.float32, device=self.device

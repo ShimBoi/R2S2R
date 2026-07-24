@@ -56,13 +56,7 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                 auto_register_droid_envs,
             )
             from robolab.registrations.droid.camera_presets import WRIST_POLARIS
-
-            # Set inside this subprocess (not the driver process) so it is read back
-            # reliably within the same process, right before task registration
-            # triggers RoboLab task event construction (e.g. mug_on_cutting_board_task.py's
-            # _select_randomization). Held-out test presets/backgrounds are used
-            # whenever this env is built from an `eval_only: True` env config section
-            # (e.g. cfg.env.eval), for sim2sim transfer evaluation.
+            
             os.environ["ROBOLAB_EVAL_ONLY"] = "1" if bool(getattr(self.cfg, "eval_only", False)) else "0"
 
             task_file = getattr(self.cfg.init_params, "task_file", None)
