@@ -5,15 +5,14 @@ import os
 
 import isaaclab.sim.utils as sim_utils
 import isaaclab.utils.math as math_utils
+import robolab.constants
+import robolab.core.utils.usd_utils as usd_utils
 import torch
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.envs import ManagerBasedEnv
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
-
-import robolab.constants
-import robolab.core.utils.usd_utils as usd_utils
 
 
 ########################################################
@@ -24,12 +23,14 @@ class RandomizeInitPoseUniform:
     """Configuration for randomizing initial pose uniformly."""
 
     @classmethod
-    def from_params(cls,
+    def from_params(
+        cls,
         objects: list[SceneEntityCfg] | SceneEntityCfg | list[str] | str,
         pose_range: dict,
-        velocity_range: dict = None,
+        velocity_range: dict | None = None,
         collision_margin: float = 0.0,
-        max_retries: int = 100):
+        max_retries: int = 100,
+    ):
         """Create a RandomizeInitPoseUniform instance with custom parameters.
 
         Args:
@@ -56,16 +57,20 @@ class RandomizeInitPoseUniform:
                     "asset_cfg": objects,
                     "collision_margin": collision_margin,
                     "max_retries": max_retries,
-                }
+                },
             )
 
         return CustomRandomizeInitPoseUniform()
+
 
 ########################################################
 #  Object pose initialization
 ########################################################
 
-def _parse_asset_cfg(asset_cfg: list[SceneEntityCfg] | SceneEntityCfg | list[str] | str) -> list[str]:
+
+def _parse_asset_cfg(
+    asset_cfg: list[SceneEntityCfg] | SceneEntityCfg | list[str] | str,
+) -> list[str]:
     """Parse asset_cfg into a list of asset names.
 
     Args:
@@ -79,7 +84,11 @@ def _parse_asset_cfg(asset_cfg: list[SceneEntityCfg] | SceneEntityCfg | list[str
     elif isinstance(asset_cfg, str):
         return [asset_cfg]
     elif isinstance(asset_cfg, list):
-        return [each.name if isinstance(each, SceneEntityCfg) else each for each in asset_cfg if isinstance(each, (SceneEntityCfg, str))]
+        return [
+            each.name if isinstance(each, SceneEntityCfg) else each
+            for each in asset_cfg
+            if isinstance(each, (SceneEntityCfg, str))
+        ]
     else:
         return list(asset_cfg)
 
@@ -137,7 +146,9 @@ def _check_collision_with_others(
         # Minimum distance is sum of radii plus margin
         min_dist = obj_radius + other_radius + collision_margin
         # Use XY distance for collision check (objects on the same surface)
-        dist_xy = torch.sqrt((position[0] - other_pos[0]) ** 2 + (position[1] - other_pos[1]) ** 2)
+        dist_xy = torch.sqrt(
+            (position[0] - other_pos[0]) ** 2 + (position[1] - other_pos[1]) ** 2
+        )
         if dist_xy < min_dist:
             return True
     return False
@@ -175,7 +186,10 @@ def sample_pose_uniform(
     root_states = asset.data.default_root_state[env_ids].clone()
 
     # poses
-    range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    range_list = [
+        pose_range.get(key, (0.0, 0.0))
+        for key in ["x", "y", "z", "roll", "pitch", "yaw"]
+    ]
     ranges = torch.tensor(range_list, device=asset.device)
 
     positions_before = root_states[:, 0:3] + env.scene.env_origins[env_ids]
@@ -186,34 +200,53 @@ def sample_pose_uniform(
         all_positions = []
         for idx, env_id in enumerate(env_ids):
             env_id_int = env_id.item() if isinstance(env_id, torch.Tensor) else env_id
-            env_other_positions = other_positions[env_id_int] if env_id_int < len(other_positions) else []
+            env_other_positions = (
+                other_positions[env_id_int] if env_id_int < len(other_positions) else []
+            )
 
             # Try sampling until collision-free or max retries
             for attempt in range(max_retries):
-                rand_sample = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (1, 6), device=asset.device)
+                rand_sample = math_utils.sample_uniform(
+                    ranges[:, 0], ranges[:, 1], (1, 6), device=asset.device
+                )
                 position = positions_before[idx] + rand_sample[0, 0:3]
 
-                if not _check_collision_with_others(position, env_other_positions, obj_radius, collision_margin):
+                if not _check_collision_with_others(
+                    position, env_other_positions, obj_radius, collision_margin
+                ):
                     break
                 if attempt == max_retries - 1 and robolab.constants.VERBOSE:
-                    print(f"Warning: Max retries ({max_retries}) reached for collision-free sampling")
+                    print(
+                        f"Warning: Max retries ({max_retries}) reached for collision-free sampling"
+                    )
 
             all_positions.append(position)
 
         positions = torch.stack(all_positions, dim=0)
         # Sample orientations separately
-        rand_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=asset.device)
+        rand_samples = math_utils.sample_uniform(
+            ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=asset.device
+        )
     else:
         # Original behavior - sample all at once
-        rand_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=asset.device)
+        rand_samples = math_utils.sample_uniform(
+            ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=asset.device
+        )
         positions = positions_before + rand_samples[:, 0:3]
 
-    orientations_delta = math_utils.quat_from_euler_xyz(rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5])
+    orientations_delta = math_utils.quat_from_euler_xyz(
+        rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5]
+    )
     orientations = math_utils.quat_mul(root_states[:, 3:7], orientations_delta)
     # velocities
-    range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    range_list = [
+        velocity_range.get(key, (0.0, 0.0))
+        for key in ["x", "y", "z", "roll", "pitch", "yaw"]
+    ]
     ranges = torch.tensor(range_list, device=asset.device)
-    rand_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=asset.device)
+    rand_samples = math_utils.sample_uniform(
+        ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=asset.device
+    )
 
     velocities = root_states[:, 7:13] + rand_samples
 
@@ -221,6 +254,7 @@ def sample_pose_uniform(
         print(f"positions: {positions} positions_before: {positions_before}")
 
     return positions, orientations, velocities
+
 
 def reset_pose_uniform(
     env: ManagerBasedEnv,
@@ -273,24 +307,34 @@ def reset_pose_uniform(
     if reset_to_default_otherwise:
         all_asset_names = _get_all_asset_names(env)
         default_pose_assets = all_asset_names - sampled_pose_assets
-        print(f"Resetting '{sampled_pose_assets}' via random uniform pose sampling and all other assets {default_pose_assets} to default")
+        print(
+            f"Resetting '{sampled_pose_assets}' via random uniform pose sampling and all other assets {default_pose_assets} to default"
+        )
         if default_pose_assets:
             _reset_assets_to_default(env, env_ids, default_pose_assets)
 
     # Track placed positions for collision avoidance (per environment)
     # Each entry is a list of (position, radius) tuples
     num_envs = env.num_envs
-    placed_positions: list[list[tuple[torch.Tensor, float]]] = [[] for _ in range(num_envs)]
+    placed_positions: list[list[tuple[torch.Tensor, float]]] = [
+        [] for _ in range(num_envs)
+    ]
 
     # Randomize the specified assets
     for i, object_name in enumerate(asset_names):
         asset: RigidObject | Articulation = env.scene[object_name]
 
         # Per-asset range takes priority over the shared pose_range
-        this_pose_range = pose_ranges[i] if (pose_ranges is not None and i < len(pose_ranges)) else pose_range
+        this_pose_range = (
+            pose_ranges[i]
+            if (pose_ranges is not None and i < len(pose_ranges))
+            else pose_range
+        )
 
         if robolab.constants.VERBOSE:
-            print(f"Randomizing initial pose for {object_name} according to: {this_pose_range} and {velocity_range}")
+            print(
+                f"Randomizing initial pose for {object_name} according to: {this_pose_range} and {velocity_range}"
+            )
 
         # Get bounding radius for this object if collision checking is enabled
         obj_radius = 0.0
@@ -301,7 +345,11 @@ def reset_pose_uniform(
                 print(f"  Object {object_name} bounding radius: {obj_radius:.4f}")
 
         positions, orientations, velocities = sample_pose_uniform(
-            env, asset, env_ids, this_pose_range, velocity_range,
+            env,
+            asset,
+            env_ids,
+            this_pose_range,
+            velocity_range,
             other_positions=placed_positions if use_collision_check else None,
             obj_radius=obj_radius,
             collision_margin=collision_margin,
@@ -311,12 +359,20 @@ def reset_pose_uniform(
         # Track placed positions for subsequent objects
         if use_collision_check:
             for idx, env_id in enumerate(env_ids):
-                env_id_int = env_id.item() if isinstance(env_id, torch.Tensor) else env_id
-                placed_positions[env_id_int].append((positions[idx].clone(), obj_radius))
+                env_id_int = (
+                    env_id.item() if isinstance(env_id, torch.Tensor) else env_id
+                )
+                placed_positions[env_id_int].append((
+                    positions[idx].clone(),
+                    obj_radius,
+                ))
 
         # set into the physics simulation
-        asset.write_root_pose_to_sim(torch.cat([positions, orientations], dim=-1), env_ids=env_ids)
+        asset.write_root_pose_to_sim(
+            torch.cat([positions, orientations], dim=-1), env_ids=env_ids
+        )
         asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
+
 
 def _reset_assets_to_default(
     env: ManagerBasedEnv,
@@ -339,7 +395,9 @@ def _reset_assets_to_default(
         default_root_state[:, 0:3] += env.scene.env_origins[env_ids]
         # set into the physics simulation
         rigid_object.write_root_pose_to_sim(default_root_state[:, :7], env_ids=env_ids)
-        rigid_object.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids=env_ids)
+        rigid_object.write_root_velocity_to_sim(
+            default_root_state[:, 7:], env_ids=env_ids
+        )
 
     # Reset articulations that are in the asset list
     for name, articulation_asset in env.scene.articulations.items():
@@ -349,13 +407,19 @@ def _reset_assets_to_default(
         default_root_state = articulation_asset.data.default_root_state[env_ids].clone()
         default_root_state[:, 0:3] += env.scene.env_origins[env_ids]
         # set into the physics simulation
-        articulation_asset.write_root_pose_to_sim(default_root_state[:, :7], env_ids=env_ids)
-        articulation_asset.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids=env_ids)
+        articulation_asset.write_root_pose_to_sim(
+            default_root_state[:, :7], env_ids=env_ids
+        )
+        articulation_asset.write_root_velocity_to_sim(
+            default_root_state[:, 7:], env_ids=env_ids
+        )
         # obtain default joint positions
         default_joint_pos = articulation_asset.data.default_joint_pos[env_ids].clone()
         default_joint_vel = articulation_asset.data.default_joint_vel[env_ids].clone()
         # set into the physics simulation
-        articulation_asset.write_joint_state_to_sim(default_joint_pos, default_joint_vel, env_ids=env_ids)
+        articulation_asset.write_joint_state_to_sim(
+            default_joint_pos, default_joint_vel, env_ids=env_ids
+        )
 
     # Reset deformable objects that are in the asset list
     for name, deformable_object in env.scene.deformable_objects.items():
@@ -453,7 +517,11 @@ def reset_pose_to_presets(
         )
         preset_indices = torch.full((len(env_ids),), forced_idx, dtype=torch.int64)
     else:
-        pool = preset_indices_pool if preset_indices_pool is not None else list(range(num_presets))
+        pool = (
+            preset_indices_pool
+            if preset_indices_pool is not None
+            else list(range(num_presets))
+        )
         pool_tensor = torch.tensor(pool, dtype=torch.int64)
         # Sample one random preset index (from the pool) per env being reset
         preset_indices = pool_tensor[torch.randint(0, len(pool), (len(env_ids),))]
@@ -465,7 +533,9 @@ def reset_pose_to_presets(
         positions = []
         orientations = []
         for idx, env_id in enumerate(env_ids):
-            env_id_int = env_id.item() if isinstance(env_id, torch.Tensor) else int(env_id)
+            env_id_int = (
+                env_id.item() if isinstance(env_id, torch.Tensor) else int(env_id)
+            )
             preset_idx_used = preset_indices[idx].item()
             pose = presets[preset_idx_used][i]
             print(
@@ -485,13 +555,88 @@ def reset_pose_to_presets(
         orientations = torch.stack(orientations, dim=0)
         velocities = torch.zeros_like(root_states[:, 7:13])
 
-        asset.write_root_pose_to_sim(torch.cat([positions, orientations], dim=-1), env_ids=env_ids)
+        asset.write_root_pose_to_sim(
+            torch.cat([positions, orientations], dim=-1), env_ids=env_ids
+        )
         asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
+
+
+def reset_to_captured_state(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    captured_states: list[dict],
+    object_names: list[str] = ["cutting_board_a", "ceramic_mug", "coke"],
+    robot_name: str = "robot",
+):
+    """Reset objects and the robot articulation to a full captured simulation state.
+
+    A random captured state is sampled independently per env being reset.
+
+    Args:
+        env: The environment instance.
+        env_ids: The environment indices to reset.
+        captured_states: List of dicts written by the collection hook in the RLinf-side mixin
+            (rlinf/envs/isaaclab/tasks/robolab_task.py). Each dict has the form:
+            {"objects": {name: [x, y, z, qw, qx, qy, qz, vx, vy, vz, wx, wy, wz]}, ...
+            "robot_joint_pos": [...], "robot_joint_vel": [...]}. Object positions are
+            env-origin-relative, matching WorldState.get_pose(..., is_relative=True)'s
+            convention; env_origins is added back before writing to sim, same as every
+            other reset function in this file.
+        object_names: Names of the rigid objects to reset from `captured_states["objects"]`.
+        robot_name: Name of the robot articulation to reset from `captured_states["robot_joint_pos"]`
+            and `captured_states["robot_joint_vel"]`.
+    """
+    num_states = len(captured_states)
+    sample_idx = torch.randint(0, num_states, (len(env_ids),))
+
+    for object_name in object_names:
+        asset: RigidObject = env.scene[object_name]
+        positions, orientations, velocities = [], [], []
+        for i, env_id in enumerate(env_ids):
+            eid = env_id.item() if isinstance(env_id, torch.Tensor) else int(env_id)
+            row = captured_states[sample_idx[i].item()]["objects"][object_name]
+            pos = (
+                torch.tensor(row[0:3], device=asset.device, dtype=torch.float32)
+                + env.scene.env_origins[eid]
+            )
+            positions.append(pos)
+            orientations.append(
+                torch.tensor(row[3:7], device=asset.device, dtype=torch.float32)
+            )
+            velocities.append(
+                torch.tensor(row[7:13], device=asset.device, dtype=torch.float32)
+            )
+        positions = torch.stack(positions, dim=0)
+        orientations = torch.stack(orientations, dim=0)
+        velocities = torch.stack(velocities, dim=0)
+        asset.write_root_pose_to_sim(
+            torch.cat([positions, orientations], dim=-1), env_ids=env_ids
+        )
+        asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
+
+    robot: Articulation = env.scene[robot_name]
+    joint_pos, joint_vel = [], []
+    for i, env_id in enumerate(env_ids):
+        row = captured_states[sample_idx[i].item()]
+        joint_pos.append(
+            torch.tensor(
+                row["robot_joint_pos"], device=robot.device, dtype=torch.float32
+            )
+        )
+        joint_vel.append(
+            torch.tensor(
+                row["robot_joint_vel"], device=robot.device, dtype=torch.float32
+            )
+        )
+    joint_pos = torch.stack(joint_pos, dim=0)
+    joint_vel = torch.stack(joint_vel, dim=0)
+    robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
 
 
 ########################################################
 #  Logging functions
 ########################################################
+
 
 def log_init_poses(init_object_poses, output_dir, title=""):
     """Randomize the pose of a single object."""
@@ -499,9 +644,19 @@ def log_init_poses(init_object_poses, output_dir, title=""):
 
     from robolab.core.utils.plot_utils import plot_objects
 
-    title = title.lower().replace(' ', '_')
-    plot_objects(init_object_poses, title=title, image_path=os.path.join(output_dir, f"{title}.png"))
+    title = title.lower().replace(" ", "_")
+    plot_objects(
+        init_object_poses,
+        title=title,
+        image_path=os.path.join(output_dir, f"{title}.png"),
+    )
 
     import json
+
     with open(os.path.join(output_dir, f"{title}.json"), "w") as f:
-        json.dump(init_object_poses, f, indent=2, default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o))
+        json.dump(
+            init_object_poses,
+            f,
+            indent=2,
+            default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o),
+        )
