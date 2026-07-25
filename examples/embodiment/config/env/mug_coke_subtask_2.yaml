@@ -1,0 +1,43 @@
+env_type: robolab
+total_num_envs: null
+auto_reset: True
+ignore_terminations: False
+use_rel_reward: False
+seed: 0
+group_size: 1
+
+reward_coef: 1.0
+use_fixed_reset_state_ids: False
+eval_only: False  # SharedRandomization/CapturedStateRandomization don't branch on this; kept for interface consistency.
+max_steps_per_rollout_epoch: 225
+max_episode_steps: 225 # max episode steps for truncation
+
+video_cfg:
+  save_video: False
+  info_on_video: True
+  fps: 20
+  video_base_dir: ${runner.logger.log_path}/video/train
+
+init_params:
+  id: "Subtask2CokeOnCuttingboardTask"
+  task_file: "subtask_2_coke_on_cuttingboard_task.py"
+  task_description: "Pick up the coke can and place it on the cutting board"
+  mode: "subtask_2"
+  subtasks:
+    object_1: "ceramic_mug"
+    object_2: "coke"
+    surface: "cutting_board_a"
+    instruction_1: "Pick up the latte art cup and place it on the cutting board"
+    instruction_2: "Pick up the coke can and place it on the cutting board"
+  save_end_state_path: null
+  reset_states_path: null   # set to the subtask_1 end-state collection output (a .jsonl path) once
+                             # available; null falls back to the default 100 starting states with the
+                             # latte cup scattered the same way subtask_1 trained against.
+  num_envs: null  # filled in at runtime from total_num_envs / num_processes
+
+  over_shoulder_cam:
+    height: 224
+    width: 224
+  wrist_cam:
+    height: 224
+    width: 224
