@@ -3,6 +3,7 @@
 
 import importlib.util
 import os
+import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -52,6 +53,10 @@ def load_task_from_file(task_file_path: str, allow_multiple: bool = False) -> Ta
             raise ValueError(f"Could not load module from {task_file_path}")
 
         module = importlib.util.module_from_spec(spec)
+        # Register in sys.modules before exec so lookups like sys.modules[cls.__module__]
+        # from outside this function (e.g. RLinf's task-module attribute injection) resolve,
+        # matching the standard importlib.util.spec_from_file_location recipe.
+        sys.modules[module_name] = module
         spec.loader.exec_module(module)
 
         # Cache the loaded module

@@ -9,7 +9,7 @@ from robolab.core.events.reset_pose import reset_to_captured_state
 from robolab.core.task.conditionals import pick_and_place_on_surface
 from robolab.core.task.task import Task
 
-from ._mug_coke_common import (
+from robolab.tasks.benchmark._mug_coke_common import (
     CONTACT_OBJECT_LIST,
     SCENE,
     SharedRandomization,
