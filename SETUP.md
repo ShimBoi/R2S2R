@@ -231,24 +231,13 @@ actually wired up correctly before attempting a real multi-hour training run.
 
 ## Troubleshooting
 
-- **Vulkan "No device could be created" / `vk_icdGetInstanceProcAddr` failures**: the last time
-  this happened, it was root-caused to a bad cluster node, not a real driver/env
-  misconfiguration — confirmed by the fact that even a minimal raw ctypes Vulkan probe hit the
-  identical failure. Try a different node/allocation first. This is unrelated to the malloc-hook
-  shim below — try that only if you hit the specific symptom described there, not this one.
-- **`undefined symbol: __malloc_hook` (or `__realloc_hook`/`__free_hook`/`__memalign_hook`/
-  `ErrorF`) at `dlopen` time**: a real, but host-driver-specific, incompatibility — glibc >=2.34
-  removed those hooks, and one particular old NVIDIA driver build (535.216.03) still references
-  them when `libnvidia-glcore.so` loads, which fails fatally and breaks `vkCreateInstance` for
-  any caller that pulls it in (e.g. Isaac Sim/Kit). Tied to that exact host driver version, not to
-  Apptainer/the sandbox/this repo — a different machine's driver may not hit this at all. Only
-  build/use the shim if you actually see this exact error:
-  `gcc -shared -fPIC -o setup/libmalloc_hook_shim.so setup/glibc_malloc_hook_shim.c`, then
-  `export LD_PRELOAD=$(pwd)/setup/libmalloc_hook_shim.so` before running IsaacLab/Isaac Sim
-  commands.
-- **`apptainer build` permission errors**: see the `--fakeroot` / `--remote` note under
-  [Prerequisites](#prerequisites) — this is the one step that depends on how your specific
-  cluster is configured, not something this repo can paper over.
+Setup/environment issues (Vulkan device-creation failures, the glibc malloc-hook shim, cold-node
+import slowness, wandb/Ray startup timeouts, and more) are in [DEBUG.md](DEBUG.md) — match your
+symptom there.
+
+`apptainer build` permission errors: see the `--fakeroot` / `--remote` note under
+[Prerequisites](#prerequisites) — the one step that depends on your specific cluster's config,
+not something this repo can paper over.
 - **Silent "success" that isn't**: `run_embodiment.sh`/`eval_embodiment.sh` piping through `tee`
   means a real Python traceback can still exit 0. Always grep the actual log for `Traceback` in
   addition to checking the exit code — several real bugs in this project's history were exactly
