@@ -265,6 +265,7 @@ class RecordVideo(gym.Wrapper):
         terminations: Optional[Any],
         env_id: int,
         time_idx: Optional[int] = None,
+        obs: Optional[Any] = None,
     ) -> dict:
         """Build a per-env info dict for overlay."""
         info_item: dict[str, Any] = {}
@@ -301,6 +302,11 @@ class RecordVideo(gym.Wrapper):
                     continue
                 info_item[key] = value
 
+        if obs is not None:
+            task_desc = self._get_task_description(obs, env_id)
+            if task_desc is not None:
+                info_item["task"] = task_desc
+
         return info_item
 
     def _append_frame(
@@ -310,6 +316,7 @@ class RecordVideo(gym.Wrapper):
         rewards: Optional[Any],
         terminations: Optional[Any],
         time_idx: Optional[int] = None,
+        obs: Optional[Any] = None,
     ) -> None:
         """Overlay info (optional) and append a tiled frame."""
         if not images:
@@ -319,7 +326,7 @@ class RecordVideo(gym.Wrapper):
                 put_info_on_image(
                     img,
                     self._build_info_item(
-                        infos, rewards, terminations, env_id, time_idx
+                        infos, rewards, terminations, env_id, time_idx, obs
                     ),
                 )
                 for env_id, img in enumerate(images)
@@ -347,14 +354,23 @@ class RecordVideo(gym.Wrapper):
             )
             return
 
+        # obs is either a single per-step dict (applies to every frame extracted from
+        # it) or a list/tuple of per-timestep dicts (chunk_step results) -- mirror how
+        # `infos` is already handled above so each frame gets the right timestep's obs.
+        obs_is_sequence = isinstance(obs, (list, tuple))
+
         if isinstance(infos, (list, tuple)):
             for time_idx, images in enumerate(frames):
                 step_info = infos[time_idx] if len(infos) > time_idx else None
-                self._append_frame(images, step_info, rewards, terminations, time_idx)
+                step_obs = obs[time_idx] if obs_is_sequence and len(obs) > time_idx else obs
+                self._append_frame(
+                    images, step_info, rewards, terminations, time_idx, step_obs
+                )
             return
 
         for time_idx, images in enumerate(frames):
-            self._append_frame(images, infos, rewards, terminations, time_idx)
+            step_obs = obs[time_idx] if obs_is_sequence and len(obs) > time_idx else obs
+            self._append_frame(images, infos, rewards, terminations, time_idx, step_obs)
 
     def reset(self, *args, **kwargs):
         """Reset env and record the initial frame."""
