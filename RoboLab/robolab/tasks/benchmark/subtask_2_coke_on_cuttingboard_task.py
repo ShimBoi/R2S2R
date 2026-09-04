@@ -27,7 +27,7 @@ def _events():
     """
     path = sys.modules[__name__].RESET_STATES_PATH
     if not path:
-        return SharedRandomization
+        return SharedRandomization()
     with open(path) as f:
         captured_states = [json.loads(line) for line in f if line.strip()]
 
@@ -46,7 +46,7 @@ def _events():
             },
         )
 
-    return CapturedStateRandomization
+    return CapturedStateRandomization()
 
 
 @dataclass
