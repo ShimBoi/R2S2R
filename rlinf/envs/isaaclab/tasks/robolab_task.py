@@ -15,6 +15,7 @@
 import os
 
 import torch
+from omegaconf import OmegaConf
 
 from ..isaaclab_env import IsaaclabBaseEnv
 
@@ -28,16 +29,32 @@ class NoAutoResetManagerBasedRLEnv:
     duration of each step() call so resets only happen via explicit env.reset().
 
     Also optionally drives a VLM-simulated long-horizon subtask handoff, controlled
-    entirely by the three class attributes below (set per-instance by
-    RoboLabDroidEnv._make_env_function from `init_params.subtasks`/`mode`/
-    `save_end_state_path`). When `_subtasks_cfg` is unset (the default), the handoff
-    logic is skipped entirely and the mixin only suppresses auto-reset.
+    entirely by the class attributes below (set per-instance by
+    RoboLabDroidEnv._make_env_function from `init_params.subtasks`/`edge_spec`/`plan`/
+    `mode`/`save_end_state_path`). When none of `_subtasks_cfg`/`_edge_spec`/
+    `_active_plan` is set (the default), the handoff logic is skipped entirely and the
+    mixin only suppresses auto-reset.
+
+    Two families of modes:
+      - The original, hardcoded two-subtask pipeline (mug then coke -- see
+        long_horizon_task_composition_plan.md): "subtask_1" | "subtask_2" | "full",
+        driven by `_subtasks_cfg`. Unchanged by the generalization below.
+      - The generalized, tree-discovered pipeline (PLAN.md): "single_edge" (one
+        training-mode edge, driven by `_edge_spec` -- see generic_single_edge_task.py)
+        and "plan" (the eval-time ratchet over however many steps a resolved plan has,
+        driven by `_active_plan` -- see generic_eval_task.py). Both dispatch their
+        predicate(s) by name via robolab.core.task.conditionals instead of hardcoding
+        object_on_top, per PLAN.md section 5.1.
     """
 
     _subtasks_cfg = (
         None  # {"object_1", "object_2", "surface", "instruction_1", "instruction_2"}
     )
-    _mode = "full"  # "subtask_1" | "subtask_2" | "full"
+    _edge_spec = None  # {"predicate": str, "predicate_args": dict, "instruction": str}
+    _active_plan = (
+        None  # [{"predicate": str, "predicate_args": dict, "instruction": str}, ...]
+    )
+    _mode = "full"  # "subtask_1" | "subtask_2" | "full" | "single_edge" | "plan"
     _save_end_state_path = (
         None  # set only on the dedicated subtask_1-checkpoint collection run
     )
@@ -47,6 +64,28 @@ class NoAutoResetManagerBasedRLEnv:
             self.num_envs, dtype=torch.long, device=self.device
         )
         self._task_descriptions = [self._subtasks_cfg["instruction_1"]] * self.num_envs
+        # Guards against crediting subtask_2 completion when object_2 was already
+        # resting on the surface at the moment of handoff (e.g. placed out of
+        # order, before instruction_2 was even issued) -- see step() below.
+        self._obj2_needs_fresh_placement = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+
+    def _init_plan_ratchet(self):
+        """Generalized counterpart to _init_ratchet() above, for mode == "plan": an
+        N-step ratchet over `_active_plan` instead of a hardcoded 2-step one. See the
+        "plan" branch of step() below for how `_needs_fresh_placement` generalizes
+        `_obj2_needs_fresh_placement`'s out-of-order-completion gate to N steps.
+        """
+        self._plan_idx = torch.zeros(
+            self.num_envs, dtype=torch.long, device=self.device
+        )
+        self._task_descriptions = [
+            self._active_plan[0]["instruction"]
+        ] * self.num_envs
+        self._needs_fresh_placement = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
 
     def reset(self, *args, **kwargs):
         obs, info = super().reset(*args, **kwargs)
@@ -58,14 +97,31 @@ class NoAutoResetManagerBasedRLEnv:
             env_ids = kwargs.get("env_ids", args[0] if args else None)
             if env_ids is None:
                 self._subtask_idx[:] = 0
+                self._obj2_needs_fresh_placement[:] = False
                 self._task_descriptions = [
                     self._subtasks_cfg["instruction_1"]
                 ] * self.num_envs
             else:
                 ids = env_ids.tolist() if hasattr(env_ids, "tolist") else list(env_ids)
                 self._subtask_idx[env_ids] = 0
+                self._obj2_needs_fresh_placement[env_ids] = False
                 for eid in ids:
                     self._task_descriptions[eid] = self._subtasks_cfg["instruction_1"]
+        elif self._active_plan and self._mode == "plan":
+            if not hasattr(self, "_plan_idx"):
+                self._init_plan_ratchet()
+            env_ids = kwargs.get("env_ids", args[0] if args else None)
+            first_instruction = self._active_plan[0]["instruction"]
+            if env_ids is None:
+                self._plan_idx[:] = 0
+                self._needs_fresh_placement[:] = False
+                self._task_descriptions = [first_instruction] * self.num_envs
+            else:
+                ids = env_ids.tolist() if hasattr(env_ids, "tolist") else list(env_ids)
+                self._plan_idx[env_ids] = 0
+                self._needs_fresh_placement[env_ids] = False
+                for eid in ids:
+                    self._task_descriptions[eid] = first_instruction
         return obs, info
 
     def step(self, action):
@@ -104,23 +160,45 @@ class NoAutoResetManagerBasedRLEnv:
                 )
                 extras["subtask_2_success"] = obj2_now
 
-        # End-state collection -- fires whenever subtask_1's condition succeeds. Used
-        # on the dedicated subtask_1-checkpoint collection eval run, not during normal
-        # training. Object names come from the same subtasks_cfg template (object_1/
-        # object_2/surface) rather than being hardcoded here, so this stays task-agnostic;
-        # the consumer (RoboLab's reset_to_captured_state) must be given matching names.
-        if self._save_end_state_path and obj1_now is not None and obj1_now.any():
+        # Generic single-edge dispatch (mode == "single_edge"): the predicate/args
+        # aren't known ahead of time -- looked up by name from conditionals.py instead
+        # of the hardcoded object_on_top call above, per PLAN.md section 5.1.
+        edge_success_now = None
+        if self._edge_spec:
+            from robolab.core.task import conditionals
+
+            predicate_fn = getattr(conditionals, self._edge_spec["predicate"])
+            edge_success_now = predicate_fn(
+                self, env_id=None, **self._edge_spec["predicate_args"]
+            )
+            extras["subtask_1_success"] = edge_success_now
+
+        # End-state collection -- fires whenever the "first" subtask's condition
+        # succeeds (either _subtasks_cfg's hardcoded subtask_1, or the single edge
+        # being trained under mode == "single_edge"). Used on the dedicated
+        # checkpoint-collection eval run, not during normal training. capture_names
+        # comes from the subtasks_cfg template (object_1/object_2/surface) when
+        # present; for a generic single edge it falls back to this scene's fixed
+        # object set (this design is one tree per scene, not per edge -- see
+        # PLAN.md section 0.1 -- so a fixed capture list is correct here, not a
+        # simplification specific to this edge).
+        save_trigger_now = obj1_now if obj1_now is not None else edge_success_now
+        if self._save_end_state_path and save_trigger_now is not None and save_trigger_now.any():
             import json
 
             from robolab.core.world.world_state import get_world
 
             world = get_world(self)
-            capture_names = [
-                self._subtasks_cfg["object_1"],
-                self._subtasks_cfg["object_2"],
-                self._subtasks_cfg["surface"],
-            ]
-            for eid in obj1_now.nonzero(as_tuple=True)[0].tolist():
+            capture_names = (
+                [
+                    self._subtasks_cfg["object_1"],
+                    self._subtasks_cfg["object_2"],
+                    self._subtasks_cfg["surface"],
+                ]
+                if self._subtasks_cfg
+                else ["cutting_board_a", "ceramic_mug", "coke"]
+            )
+            for eid in save_trigger_now.nonzero(as_tuple=True)[0].tolist():
                 objects = {}
                 for name in capture_names:
                     pos, quat = world.get_pose(name, is_relative=True, env_id=eid)
@@ -159,6 +237,14 @@ class NoAutoResetManagerBasedRLEnv:
                 on_1 = self._subtask_idx == 0
                 advance = on_1 & obj1_now
                 if advance.any():
+                    # object_2 may already be sitting on the surface at the exact
+                    # moment of handoff (e.g. it was placed out of order, before
+                    # instruction_2 was ever issued, and just never moved). That
+                    # shouldn't retroactively satisfy instruction_2 -- require a
+                    # fresh off-then-on placement observed after the handoff.
+                    self._obj2_needs_fresh_placement = torch.where(
+                        advance, obj2_now, self._obj2_needs_fresh_placement
+                    )
                     self._subtask_idx = torch.where(
                         advance, torch.ones_like(self._subtask_idx), self._subtask_idx
                     )
@@ -168,7 +254,14 @@ class NoAutoResetManagerBasedRLEnv:
                         ]
 
                 on_2 = self._subtask_idx == 1
-                complete = on_2 & obj2_now
+                # Once object_2 is observed off the surface while on subtask_2,
+                # any later "on" reading is a genuine new placement -- clear the gate.
+                self._obj2_needs_fresh_placement = torch.where(
+                    on_2 & ~obj2_now,
+                    torch.zeros_like(self._obj2_needs_fresh_placement),
+                    self._obj2_needs_fresh_placement,
+                )
+                complete = on_2 & obj2_now & ~self._obj2_needs_fresh_placement
                 if complete.any():
                     self._subtask_idx = torch.where(
                         complete,
@@ -179,6 +272,99 @@ class NoAutoResetManagerBasedRLEnv:
                 terminated = terminated | (self._subtask_idx == 2)
                 extras["current_subtask_idx"] = self._subtask_idx.clone()
                 extras["task_descriptions"] = list(self._task_descriptions)
+        elif self._edge_spec and self._mode == "single_edge":
+            # Generic counterpart to the "subtask_1"/"subtask_2" branches above: one
+            # edge, one predicate, no ratchet needed (training on a single edge is
+            # never a multi-step sequence -- see generic_single_edge_task.py).
+            terminated = terminated | edge_success_now
+            extras["task_descriptions"] = [
+                self._edge_spec["instruction"]
+            ] * self.num_envs
+        elif self._active_plan and self._mode == "plan":
+            # Generic counterpart to the "full" branch above: an N-step ratchet over
+            # `_active_plan` (see generic_eval_task.py) instead of a hardcoded 2-step
+            # one, dispatching each step's predicate by name (PLAN.md section 5.1).
+            #
+            # Generalizes the irreversible, out-of-order-completion-proof ratchet
+            # fix above (the `_obj2_needs_fresh_placement` gate) from exactly one
+            # handoff (subtask_1 -> subtask_2) to N-1 handoffs. The same reasoning
+            # applies at every transition, not just the first: a step's completion,
+            # once its predicate goes true, is only credited if it was NOT already
+            # true at the moment its instruction became the active one (i.e. it was
+            # satisfied out of order, before this step was even reached) -- it must
+            # be freshly (re-)satisfied while actually active. Since only one step
+            # is ever active per env at a time, a single per-env gate
+            # (`_needs_fresh_placement`) suffices, snapshotted at each handoff and
+            # cleared the first time the new active step's predicate is observed
+            # false while active -- exactly generalizing the original two-step logic
+            # (on_1/advance/on_2/complete above) to a loop over every step index.
+            if not hasattr(self, "_plan_idx"):
+                self._init_plan_ratchet()
+
+            from robolab.core.task import conditionals
+
+            plan = self._active_plan
+            n = len(plan)
+            # Evaluate every step's predicate for the whole batch, unconditionally,
+            # exactly as obj1_now/obj2_now are computed unconditionally above --
+            # cheap (n is small, bounded by the tree's max depth) and keeps the
+            # gate-snapshot value below consistent with what "now" means for the
+            # rest of this same step() call.
+            preds_now = [
+                getattr(conditionals, spec["predicate"])(
+                    self, env_id=None, **spec["predicate_args"]
+                )
+                for spec in plan
+            ]
+            # Backward-compatible metric keys for the common (and currently only
+            # exercised) 2-step case -- lets RoboLabDroidEnv._record_metrics's
+            # existing subtask_1_success_once / subtask_2_success_once aggregation
+            # keep working unchanged for a 2-step plan. N > 2 plans don't yet get
+            # per-step metrics beyond current_subtask_idx (final_subtask_idx) below;
+            # that would need _record_metrics itself extended, out of scope here.
+            if n >= 1:
+                extras["subtask_1_success"] = preds_now[0]
+            if n >= 2:
+                extras["subtask_2_success"] = preds_now[1]
+
+            for i in range(n):
+                on_i = self._plan_idx == i
+                if not on_i.any():
+                    continue
+                pred_i_now = preds_now[i]
+                if i == 0:
+                    # The very first step was never handed off into -- there's no
+                    # prior instruction it could have been satisfied out of order
+                    # with respect to, so it's never gated.
+                    gated = torch.zeros_like(pred_i_now)
+                else:
+                    self._needs_fresh_placement = torch.where(
+                        on_i & ~pred_i_now,
+                        torch.zeros_like(self._needs_fresh_placement),
+                        self._needs_fresh_placement,
+                    )
+                    gated = self._needs_fresh_placement
+                advance = on_i & pred_i_now & ~gated
+                if not advance.any():
+                    continue
+                next_idx = i + 1
+                if next_idx < n:
+                    next_pred_now = preds_now[next_idx]
+                    self._needs_fresh_placement = torch.where(
+                        advance, next_pred_now, self._needs_fresh_placement
+                    )
+                    next_instruction = plan[next_idx]["instruction"]
+                else:
+                    next_instruction = "done"
+                for eid in advance.nonzero(as_tuple=True)[0].tolist():
+                    self._task_descriptions[eid] = next_instruction
+                self._plan_idx = torch.where(
+                    advance, torch.full_like(self._plan_idx, next_idx), self._plan_idx
+                )
+
+            terminated = terminated | (self._plan_idx >= n)
+            extras["current_subtask_idx"] = self._plan_idx.clone()
+            extras["task_descriptions"] = list(self._task_descriptions)
 
         return obs, reward, terminated, time_out, extras
 
@@ -260,6 +446,53 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                     ),
                 }
 
+            # Generic single-edge (training) / plan (eval) plumbing, opt-in via
+            # init_params, parallel to subtasks_cfg above. Unlike reset_states_path,
+            # predicate/predicate_args/instruction never need to reach the task-file
+            # module itself (see generic_single_edge_task.py's RESET_STATES_PATH
+            # docstring) -- they're only consumed by this mixin, which already has
+            # direct access to self.cfg.init_params, so no sys.modules injection is
+            # needed on this side. Two equivalent ways in, for whichever is more
+            # convenient upstream (the orchestrator's generate_training_config /
+            # resolve_plan): an inline (possibly nested) Hydra field
+            # (init_params.edge_spec / init_params.plan -- OmegaConf.to_container
+            # fully resolves nested predicate_args dicts into plain dicts so
+            # **spec["predicate_args"] unpacking in step() works regardless of a
+            # predicate's own arg shapes), or a path to a small JSON file
+            # (init_params.edge_spec_path / init_params.plan_path -- same shape,
+            # mirroring reset_states_path's path-to-data-file convention for
+            # whichever side finds it easier to produce, e.g. writing a VLM-derived
+            # predicate_args dict via json.dump instead of assembling Hydra
+            # overrides for an arbitrarily-shaped nested dict). If both are given
+            # for the same field, the *_path file wins.
+            edge_spec_path = getattr(self.cfg.init_params, "edge_spec_path", None)
+            if edge_spec_path:
+                import json as _json
+
+                with open(edge_spec_path) as _f:
+                    edge_spec = _json.load(_f)
+            else:
+                edge_spec_raw = getattr(self.cfg.init_params, "edge_spec", None)
+                edge_spec = (
+                    OmegaConf.to_container(edge_spec_raw, resolve=True)
+                    if edge_spec_raw is not None
+                    else None
+                )
+
+            plan_path = getattr(self.cfg.init_params, "plan_path", None)
+            if plan_path:
+                import json as _json
+
+                with open(plan_path) as _f:
+                    active_plan = _json.load(_f)
+            else:
+                plan_raw = getattr(self.cfg.init_params, "plan", None)
+                active_plan = (
+                    OmegaConf.to_container(plan_raw, resolve=True)
+                    if plan_raw is not None
+                    else None
+                )
+
             mode = str(getattr(self.cfg.init_params, "mode", "full"))
             save_end_state_path = getattr(
                 self.cfg.init_params, "save_end_state_path", None
@@ -295,6 +528,8 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                 (NoAutoResetManagerBasedRLEnv, ManagerBasedRLEnv),
                 {
                     "_subtasks_cfg": subtasks_cfg,
+                    "_edge_spec": edge_spec,
+                    "_active_plan": active_plan,
                     "_mode": mode,
                     "_save_end_state_path": save_end_state_path,
                 },
