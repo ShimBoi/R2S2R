@@ -26,7 +26,7 @@ runner:
     experiment_name: "mug_coke_subtask_2_grpo_openpi_pi05"
     logger_backends: ["wandb"] # wandb, swanlab
 
-  max_epochs: 200
+  max_epochs: 60
   max_steps: -1
 
   only_eval: False

@@ -1,10 +1,19 @@
 defaults:
-  - env/mug_coke_subtask_1@env.train
-  - env/mug_coke_subtask_1@env.eval
+  - env/generic_single_edge_grpo_openpi_pi05@env.train
+  - env/generic_single_edge_grpo_openpi_pi05@env.eval
   - model/pi0_5@actor.model
   - training_backend/fsdp@actor.fsdp_config
   - weight_syncer/patch_syncer@weight_syncer
   - override hydra/job_logging: stdout
+
+# Production-scale config for training ONE edge of a VLM-discovered subtask tree via
+# generic_single_edge_task.py -- the reusable replacement for a hand-written per-edge task
+# file. total_num_envs must stay a multiple of group_size * num_ranks, and
+# total_num_envs * rollout_epoch must equal global_batch_size.
+#
+# generate_training_config() (rlinf/envs/isaaclab/tasks/discovery/orchestrator.py) overrides
+# env.{train,eval}.init_params.edge_spec_path/reset_states_path per real discovered edge;
+# nothing about this top-level config needs to change per edge.
 
 hydra:
   run:
@@ -23,7 +32,7 @@ runner:
   logger:
     log_path: "../results"
     project_name: rlinf
-    experiment_name: "mug_coke_subtask_1_grpo_openpi_pi05"
+    experiment_name: "generic_single_edge_grpo_openpi_pi05"
     logger_backends: ["wandb"] # wandb, swanlab
 
   max_epochs: 60
@@ -103,7 +112,7 @@ env:
     auto_reset: False
     ignore_terminations: False
     use_fixed_reset_state_ids: True
-    eval_only: False  # this experiment has no held-out train/test split (see plan doc section 0)
+    eval_only: False  # this experiment has no held-out train/test split (see PLAN.md section 0)
     video_cfg:
       save_video: True
       info_on_video: True

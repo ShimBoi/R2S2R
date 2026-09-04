@@ -1,10 +1,17 @@
 defaults:
-  - env/mug_coke_subtask_1@env.train
-  - env/mug_coke_subtask_1@env.eval
+  - env/generic_eval_grpo_openpi_pi05@env.train
+  - env/generic_eval_grpo_openpi_pi05@env.eval
   - model/pi0_5@actor.model
   - training_backend/fsdp@actor.fsdp_config
   - weight_syncer/patch_syncer@weight_syncer
   - override hydra/job_logging: stdout
+
+# Eval config for the VLM-discovered subtask tree: evaluates the single continually-trained
+# policy against a language instruction resolved once, up front, into an ordered plan by
+# resolve_plan() (env.eval.init_params.plan_path). Mirrors mug_coke_eval.yaml's scale
+# (eval_rollout_epoch/total_num_envs -> 800 trajectories) but points at
+# generic_eval_task.py's N-step ratchet, and expects +actor.model.lora_path=<final tree
+# checkpoint> on the CLI rather than a fixed runner.ckpt_path.
 
 hydra:
   run:
@@ -23,22 +30,22 @@ runner:
   logger:
     log_path: "../results"
     project_name: rlinf
-    experiment_name: "mug_coke_subtask_1_grpo_openpi_pi05"
-    logger_backends: ["wandb"] # wandb, swanlab
+    experiment_name: "generic_eval_openpi_pi05"
+    logger_backends: ["wandb"]
 
-  max_epochs: 60
+  max_epochs: 1
   max_steps: -1
 
-  only_eval: False
+  only_eval: True
   val_check_interval: -1
-  save_interval: 20
+  save_interval: -1
 
-  resume_dir: null # Optional: path to a saved checkpoint directory, such as 'checkpoints/global_step_10'. If not None, it will be used to resume training.
-  ckpt_path: null  # Optional: path to a .pt checkpoint. If not None, it will be loaded after the model is instantiated (for evaluation).
+  resume_dir: null
+  ckpt_path: null  # base model loaded via CLI +actor.model.lora_path=<checkpoint> instead
 
 algorithm:
   normalize_advantages: True
-  kl_penalty: kl # how to estimate kl divergence: kl or kl_penalty
+  kl_penalty: kl
   group_size: 8
   reward_coef: 1.0
   rollout_epoch: 2
@@ -66,7 +73,6 @@ algorithm:
   filter_rewards: False
   rewards_lower_bound: 0.1
   rewards_upper_bound: 0.9
-  # params for generation
   sampling_params:
     do_sample: True
     temperature_train: 1.0
@@ -76,8 +82,6 @@ algorithm:
     repetition_penalty: 1.0
     add_BOS: False
 
-  # length argument for autoregressive sampling
-  # max length means max amount of tokens to generate
   length_params:
     max_new_token: null
     max_length: 1024
@@ -87,23 +91,18 @@ env:
   group_name: "EnvGroup"
 
   train:
-    total_num_envs: 64
-    max_episode_steps: 225
-    max_steps_per_rollout_epoch: 225
-    use_fixed_reset_state_ids: True
-    auto_reset: False
-    ignore_terminations: False
-    eval_only: False
+    total_num_envs: 1
+    max_episode_steps: 450
+    max_steps_per_rollout_epoch: 450
     seed: 42
 
   eval:
     total_num_envs: 80
-    max_episode_steps: 225
-    max_steps_per_rollout_epoch: 225
+    max_episode_steps: 450
+    max_steps_per_rollout_epoch: 450
     auto_reset: False
     ignore_terminations: False
     use_fixed_reset_state_ids: True
-    eval_only: False  # this experiment has no held-out train/test split (see plan doc section 0)
     video_cfg:
       save_video: True
       info_on_video: True
@@ -157,7 +156,7 @@ actor:
   fsdp_config:
     strategy: "fsdp"
     sharding_strategy: "no_shard"
-    gradient_checkpointing: False # for openpi, gradient checkpointing is not supported, please do not change this value
+    gradient_checkpointing: False
     mixed_precision:
       param_dtype: ${actor.model.precision}
       reduce_dtype: ${actor.model.precision}

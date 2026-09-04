@@ -1,0 +1,38 @@
+env_type: robolab
+total_num_envs: null
+auto_reset: True
+ignore_terminations: False
+use_rel_reward: False
+seed: 0
+group_size: 1
+
+reward_coef: 1.0
+use_fixed_reset_state_ids: False
+eval_only: False  # SharedRandomization doesn't branch on this; kept for interface consistency.
+max_steps_per_rollout_epoch: 450
+max_episode_steps: 450 # full resolved-plan episode budget; matches mug_coke_eval.yaml's 2-subtask budget (225/subtask)
+
+video_cfg:
+  save_video: True
+  info_on_video: True
+  fps: 20
+  video_base_dir: ${runner.logger.log_path}/video/eval
+
+# Eval-time counterpart to generic_single_edge_grpo_openpi_pi05.yaml: drives
+# generic_eval_task.py's N-step ratchet over a plan resolved once, up front, by
+# resolve_plan() -- not a per-edge training config.
+init_params:
+  id: "GenericEvalTask"
+  task_file: "generic_eval_task.py"
+  task_description: "Complete the assigned sequence of subtasks"
+  mode: "plan"
+  plan_path: null  # set via CLI override per resolved language instruction: env.eval.init_params.plan_path=<path to resolve_plan() output>
+  save_end_state_path: null
+  num_envs: null  # filled in at runtime from total_num_envs / num_processes
+
+  over_shoulder_cam:
+    height: 224
+    width: 224
+  wrist_cam:
+    height: 224
+    width: 224

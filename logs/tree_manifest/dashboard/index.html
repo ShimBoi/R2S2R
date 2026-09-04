@@ -1,0 +1,1233 @@
+<title>Subtask Tree — Curriculum Progress</title>
+<style>
+  :root {
+    --bg: #14171c;
+    --surface: #1b1f28;
+    --surface-2: #232838;
+    --border: #2b3140;
+    --border-soft: #232838;
+    --text: #e7e9f0;
+    --text-muted: #8a93a8;
+    --text-faint: #5b6478;
+    --accent: #f0a868;
+    --accent-soft: rgba(240, 168, 104, 0.14);
+    --status-done: #5fbe8b;
+    --status-done-soft: rgba(95, 190, 139, 0.14);
+    --status-training: #f0a868;
+    --status-training-soft: rgba(240, 168, 104, 0.16);
+    --status-pending: #6b7387;
+    --status-pending-soft: rgba(107, 115, 135, 0.14);
+    --status-failed: #e8636b;
+    --status-failed-soft: rgba(232, 99, 107, 0.14);
+    --line: #333a4c;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.24);
+    color-scheme: dark;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f1f2f6;
+      --surface: #ffffff;
+      --surface-2: #f6f7fa;
+      --border: #dde1e8;
+      --border-soft: #e7e9ef;
+      --text: #1b1f27;
+      --text-muted: #5b6478;
+      --text-faint: #8891a3;
+      --accent: #c97a3d;
+      --accent-soft: rgba(201, 122, 61, 0.1);
+      --status-done: #2f9e63;
+      --status-done-soft: rgba(47, 158, 99, 0.1);
+      --status-training: #c97a3d;
+      --status-training-soft: rgba(201, 122, 61, 0.12);
+      --status-pending: #8891a3;
+      --status-pending-soft: rgba(136, 145, 163, 0.12);
+      --status-failed: #d1495b;
+      --status-failed-soft: rgba(209, 73, 91, 0.1);
+      --line: #d5d9e1;
+      --shadow: 0 1px 2px rgba(20, 23, 30, 0.06), 0 8px 24px rgba(20, 23, 30, 0.08);
+      color-scheme: light;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #14171c;
+    --surface: #1b1f28;
+    --surface-2: #232838;
+    --border: #2b3140;
+    --border-soft: #232838;
+    --text: #e7e9f0;
+    --text-muted: #8a93a8;
+    --text-faint: #5b6478;
+    --accent: #f0a868;
+    --accent-soft: rgba(240, 168, 104, 0.14);
+    --status-done: #5fbe8b;
+    --status-done-soft: rgba(95, 190, 139, 0.14);
+    --status-training: #f0a868;
+    --status-training-soft: rgba(240, 168, 104, 0.16);
+    --status-pending: #6b7387;
+    --status-pending-soft: rgba(107, 115, 135, 0.14);
+    --status-failed: #e8636b;
+    --status-failed-soft: rgba(232, 99, 107, 0.14);
+    --line: #333a4c;
+    color-scheme: dark;
+  }
+
+  :root[data-theme="light"] {
+    --bg: #f1f2f6;
+    --surface: #ffffff;
+    --surface-2: #f6f7fa;
+    --border: #dde1e8;
+    --border-soft: #e7e9ef;
+    --text: #1b1f27;
+    --text-muted: #5b6478;
+    --text-faint: #8891a3;
+    --accent: #c97a3d;
+    --accent-soft: rgba(201, 122, 61, 0.1);
+    --status-done: #2f9e63;
+    --status-done-soft: rgba(47, 158, 99, 0.1);
+    --status-training: #c97a3d;
+    --status-training-soft: rgba(201, 122, 61, 0.12);
+    --status-pending: #8891a3;
+    --status-pending-soft: rgba(136, 145, 163, 0.12);
+    --status-failed: #d1495b;
+    --status-failed-soft: rgba(209, 73, 91, 0.1);
+    --line: #d5d9e1;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    overflow-x: hidden;
+  }
+
+  body {
+    font-family: "Avenir Next", "Century Gothic", "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono {
+    font-family: "IBM Plex Mono", "SF Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  a { color: inherit; }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------- Header ---------- */
+
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .header-inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 22px 28px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px 28px;
+  }
+
+  .title-block .eyebrow {
+    font-family: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 6px;
+  }
+
+  .title-block h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  .title-block .subtitle {
+    margin: 5px 0 0;
+    color: var(--text-muted);
+    font-size: 13.5px;
+    max-width: 60ch;
+  }
+
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    flex-wrap: wrap;
+  }
+
+  .summary-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px 5px 8px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .chip .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex: none;
+  }
+
+  .chip-done { background: var(--status-done-soft); color: var(--status-done); }
+  .chip-done .dot { background: var(--status-done); }
+  .chip-training { background: var(--status-training-soft); color: var(--status-training); }
+  .chip-training .dot { background: var(--status-training); animation: pulse 1.8s ease-in-out infinite; }
+  .chip-pending { background: var(--status-pending-soft); color: var(--status-pending); }
+  .chip-pending .dot { background: var(--status-pending); }
+  .chip-failed { background: var(--status-failed-soft); color: var(--status-failed); }
+  .chip-failed .dot { background: var(--status-failed); }
+
+  .freshness {
+    text-align: right;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    line-height: 1.4;
+  }
+
+  .freshness strong {
+    display: block;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 12px;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.72); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chip-training .dot { animation: none; }
+  }
+
+  /* ---------- Layout ---------- */
+
+  main {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 36px 28px 80px;
+  }
+
+  .scene-strip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 34px;
+    padding: 11px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+  }
+
+  .scene-strip .label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    margin-right: 4px;
+  }
+
+  .scene-objects {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .scene-object {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+    font-weight: 600;
+    font-size: 12.5px;
+  }
+
+  .scene-object svg { flex: none; opacity: 0.85; }
+
+  /* ---------- Tree ---------- */
+
+  #tree-wrap {
+    position: relative;
+  }
+
+  #connector-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  #connector-svg path {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.5;
+  }
+
+  #connector-svg path.warn-line {
+    stroke: var(--status-failed);
+    stroke-width: 2;
+  }
+
+  #connector-svg .connector-label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 9.5px;
+    fill: var(--text-faint);
+  }
+
+  #connector-svg .connector-label.warn {
+    fill: var(--status-failed);
+    font-weight: 700;
+  }
+
+  #connector-svg .connector-label-bg {
+    fill: var(--bg);
+  }
+
+  .root-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    background: var(--surface-2);
+    border: 1px dashed var(--line);
+    color: var(--text-faint);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .root-pill-row {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 12px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .depth-row {
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    flex-wrap: wrap;
+    position: relative;
+    z-index: 1;
+  }
+
+  .depth-row + .depth-row {
+    margin-top: 46px;
+  }
+
+  .depth-label {
+    text-align: center;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 14px;
+  }
+
+  /* ---------- Node card ---------- */
+
+  .node {
+    width: 300px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 16px 17px 15px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+
+  .node::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 14px;
+    bottom: 14px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+  }
+
+  .node[data-status="finetuned"]::before { background: var(--status-done); }
+  .node[data-status="training_in_progress"]::before { background: var(--status-training); }
+  .node[data-status="queued"]::before { background: var(--status-pending); }
+  .node[data-status="failed"]::before { background: var(--status-failed); }
+
+  .node:hover { transform: translateY(-1px); border-color: var(--line); }
+
+  .node-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .node-id {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    word-break: break-word;
+    line-height: 1.4;
+  }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    flex: none;
+  }
+
+  .status-pill .dot { width: 5px; height: 5px; border-radius: 50%; }
+
+  .status-pill.finetuned { background: var(--status-done-soft); color: var(--status-done); }
+  .status-pill.finetuned .dot { background: var(--status-done); }
+  .status-pill.training_in_progress { background: var(--status-training-soft); color: var(--status-training); }
+  .status-pill.training_in_progress .dot { background: var(--status-training); animation: pulse 1.8s ease-in-out infinite; }
+  .status-pill.queued { background: var(--status-pending-soft); color: var(--status-pending); }
+  .status-pill.queued .dot { background: var(--status-pending); }
+  .status-pill.failed { background: var(--status-failed-soft); color: var(--status-failed); }
+  .status-pill.failed .dot { background: var(--status-failed); }
+
+  .node-instruction {
+    font-size: 14.5px;
+    font-weight: 600;
+    line-height: 1.35;
+    text-wrap: balance;
+  }
+
+  .node-objects {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .obj-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    padding: 3px 7px 3px 6px;
+    border-radius: 6px;
+  }
+
+  .obj-chip svg { flex: none; opacity: 0.8; }
+
+  .predicate-line {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    padding: 7px 9px;
+    line-height: 1.55;
+    word-break: break-word;
+  }
+
+  .predicate-line .fn { color: var(--accent); }
+
+  /* ---------- Success rate block ---------- */
+
+  .success-block {
+    border-top: 1px solid var(--border-soft);
+    padding-top: 11px;
+  }
+
+  .success-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    margin-bottom: 7px;
+  }
+
+  .success-delta {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .success-delta.up { color: var(--status-done); }
+  .success-delta.flat { color: var(--text-faint); }
+
+  .success-bars {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .success-bar-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .success-bar-track {
+    height: 6px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    overflow: hidden;
+  }
+
+  .success-bar-fill {
+    height: 100%;
+    border-radius: 4px 0 0 4px;
+  }
+
+  .success-bar-fill.before { background: var(--text-faint); }
+  .success-bar-fill.after { background: var(--status-done); }
+
+  .success-bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--text-muted);
+  }
+
+  .success-bar-label b { color: var(--text); font-weight: 700; }
+
+  .success-empty {
+    font-size: 11.5px;
+    color: var(--text-faint);
+    font-style: normal;
+  }
+
+  .success-empty .mono { color: var(--text-faint); }
+
+  .error-box {
+    margin-top: 8px;
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--status-failed);
+    background: var(--status-failed-soft);
+    border: 1px solid color-mix(in srgb, var(--status-failed) 30%, transparent);
+    border-radius: 6px;
+    padding: 7px 9px;
+    word-break: break-word;
+    max-height: 90px;
+    overflow-y: auto;
+  }
+
+  /* ---------- Ghost / not-yet-discovered node ---------- */
+
+  .node.ghost {
+    background: transparent;
+    border: 1.5px dashed var(--line);
+    box-shadow: none;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 6px;
+    min-height: 108px;
+  }
+
+  .node.ghost::before { display: none; }
+  .node.ghost:hover { transform: none; border-color: var(--line); }
+
+  .node.ghost .ghost-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .node.ghost .ghost-sub {
+    font-size: 11px;
+    color: var(--text-faint);
+    max-width: 24ch;
+    line-height: 1.5;
+  }
+
+  #connector-svg path.ghost-line {
+    stroke-dasharray: 4 4;
+  }
+
+  /* ---------- Phase B composed-instruction evals ---------- */
+
+  .composed-section {
+    max-width: 1180px;
+    margin: 44px auto 0;
+    padding: 0 28px;
+  }
+
+  .composed-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+
+  .composed-heading h2 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .composed-heading .eyebrow { margin: 0; }
+
+  .composed-subtitle {
+    color: var(--text-muted);
+    font-size: 13px;
+    max-width: 74ch;
+    line-height: 1.5;
+    margin-bottom: 20px;
+  }
+
+  .composed-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 16px;
+  }
+
+  .composed-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 18px 19px 17px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .composed-instruction {
+    font-size: 14.5px;
+    font-weight: 600;
+    line-height: 1.4;
+    text-wrap: balance;
+  }
+
+  .composed-breadcrumb {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  .composed-breadcrumb .crumb {
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    padding: 3px 7px;
+    word-break: break-word;
+  }
+
+  .composed-breadcrumb .arrow { color: var(--text-faint); flex: none; }
+
+  .composed-metric {
+    border-top: 1px solid var(--border-soft);
+    padding-top: 11px;
+  }
+
+  .composed-metric-label {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .composed-metric-label .composed-delta.up { color: var(--status-done); font-weight: 700; }
+  .composed-metric-label .composed-delta.flat { color: var(--text-faint); font-weight: 700; }
+
+  .composed-metric.headline .composed-metric-label { font-size: 12.5px; color: var(--text); font-weight: 700; }
+
+  .composed-pending-note {
+    font-size: 11px;
+    color: var(--text-faint);
+    font-style: normal;
+  }
+
+  /* ---------- Footer ---------- */
+
+  footer {
+    max-width: 1180px;
+    margin: 8px auto 0;
+    padding: 0 28px 40px;
+    color: var(--text-faint);
+    font-size: 11.5px;
+    line-height: 1.6;
+  }
+
+  footer code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  @media (max-width: 640px) {
+    .header-inner { padding: 18px 18px 16px; }
+    main { padding: 26px 16px 60px; }
+    .node { width: 100%; max-width: 340px; }
+    .freshness { text-align: left; }
+  }
+</style>
+
+<header>
+  <div class="header-inner">
+    <div class="title-block">
+      <p class="eyebrow">Curriculum RL &middot; mug / coke / cutting board</p>
+      <h1>Subtask tree progress</h1>
+      <p class="subtitle">Each node is one edge finetuned into a single continually-trained policy. Success rate shown is measured on that node's own success criterion, before and after its finetuning stage.</p>
+    </div>
+    <div class="header-meta">
+      <div class="summary-chips" id="summary-chips"></div>
+      <div class="freshness">
+        <strong id="freshness-time">—</strong>
+        <span id="driver-phase">—</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="scene-strip">
+    <span class="label">Scene objects</span>
+    <div class="scene-objects">
+      <span class="scene-object">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 4h6v5a3 3 0 0 1-3 3 3 3 0 0 1-3-3V4Z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M9 5.5h1.4a1.6 1.6 0 0 1 0 3.2H9" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+        ceramic_mug
+      </span>
+      <span class="scene-object">
+        <svg width="14" height="14" viewBox="0 0 14 14"><rect x="4.2" y="2" width="5.6" height="10" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="4.2" y1="5" x2="9.8" y2="5" stroke="currentColor" stroke-width="1"/></svg>
+        coke
+      </span>
+      <span class="scene-object">
+        <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1.5" y="5" width="11" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+        cutting_board_a
+      </span>
+    </div>
+  </div>
+
+  <div id="tree-wrap">
+    <svg id="connector-svg"></svg>
+    <div id="tree-rows"></div>
+  </div>
+
+  <section class="composed-section" id="composed-section" style="display:none">
+    <div class="composed-heading">
+      <p class="eyebrow">Phase B &middot; resolve_plan()</p>
+    </div>
+    <h2 style="margin-bottom:6px">Language-instruction composition</h2>
+    <p class="composed-subtitle">Whole-episode evals of free-form instructions resolved live by the VLM (one call per episode, at the root branch point) into an ordered plan over the trained tree, then rolled out end-to-end with the eval-time N-step ratchet &mdash; not a hardcoded task. "Before" is the same instruction resolved and run against the unfinetuned base model; "after" uses the final, fully-trained checkpoint.</p>
+    <div class="composed-cards" id="composed-cards"></div>
+  </section>
+</main>
+
+<footer>
+  Snapshot from <code id="footer-path">RLinf/logs/tree_manifest/dashboard_data.json</code> &mdash; regenerated and redeployed periodically while the autonomous driver runs, not a live socket. Node order reflects tree depth (root at top); connectors follow each edge's recorded precondition &rarr; produces_node relationship.
+</footer>
+
+<script>
+  // ---- Embedded snapshot data (redeployed with fresh data on each publish) ----
+  const DATA = __DASHBOARD_DATA__;
+
+  const STATUS_LABEL = {
+    finetuned: "Finetuned",
+    training_in_progress: "Training",
+    queued: "Queued",
+    failed: "Failed",
+  };
+
+  const OBJECT_ICON = {
+    ceramic_mug: '<svg width="11" height="11" viewBox="0 0 14 14"><path d="M3 4h6v5a3 3 0 0 1-3 3 3 3 0 0 1-3-3V4Z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M9 5.5h1.4a1.6 1.6 0 0 1 0 3.2H9" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
+    coke: '<svg width="11" height="11" viewBox="0 0 14 14"><rect x="4.2" y="2" width="5.6" height="10" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="4.2" y1="5" x2="9.8" y2="5" stroke="currentColor" stroke-width="1"/></svg>',
+    cutting_board_a: '<svg width="11" height="11" viewBox="0 0 14 14"><rect x="1.5" y="5" width="11" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
+  };
+
+  function fmtPct(v) {
+    if (v === null || v === undefined) return null;
+    return Math.round(v * 100) + "%";
+  }
+
+  function timeAgo(iso) {
+    if (!iso) return "unknown";
+    const then = new Date(iso.replace(" ", "T"));
+    const diffMs = Date.now() - then.getTime();
+    const mins = Math.round(diffMs / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return mins + "m ago";
+    const hrs = Math.round(mins / 60);
+    if (hrs < 48) return hrs + "h ago";
+    return Math.round(hrs / 24) + "d ago";
+  }
+
+  function renderSummaryChips(nodes) {
+    const counts = { finetuned: 0, training_in_progress: 0, queued: 0, failed: 0 };
+    nodes.forEach((n) => { counts[n.status] = (counts[n.status] || 0) + 1; });
+    const chips = [];
+    if (counts.finetuned) chips.push(`<span class="chip chip-done"><span class="dot"></span>${counts.finetuned} finetuned</span>`);
+    if (counts.training_in_progress) chips.push(`<span class="chip chip-training"><span class="dot"></span>${counts.training_in_progress} training</span>`);
+    if (counts.queued) chips.push(`<span class="chip chip-pending"><span class="dot"></span>${counts.queued} queued</span>`);
+    if (counts.failed) chips.push(`<span class="chip chip-failed"><span class="dot"></span>${counts.failed} failed</span>`);
+    document.getElementById("summary-chips").innerHTML = chips.join("");
+  }
+
+  function renderSuccessBlock(node) {
+    if (node.status === "queued") {
+      return `<div class="success-block"><span class="success-empty">Queued for this level &mdash; already discovered, will start once the current edge finishes training and its checkpoint is ready.</span></div>`;
+    }
+    if (node.status === "training_in_progress") {
+      return `<div class="success-block"><span class="success-empty">Training in progress &mdash; before/after success rate lands once this stage's checkpoint is evaluated.</span></div>`;
+    }
+    if (node.status === "failed") {
+      const hadCheckpoint = !!node.checkpoint;
+      const note = hadCheckpoint
+        ? "Training itself finished and saved a real checkpoint &mdash; a later stage (end-state collection) failed. Not yet added to the tree; driver stopped rather than continuing on a failure."
+        : "This stage failed before producing a checkpoint. Driver stopped rather than continuing.";
+      const errLine = node.error ? `<div class="error-box mono">${node.error}</div>` : "";
+      return `<div class="success-block"><span class="success-empty">${note}</span>${errLine}</div>`;
+    }
+    const before = node.success_before;
+    const after = node.success_after;
+    if (before === null || after === null) {
+      return `<div class="success-block"><span class="success-empty">Finetuned, but success metrics weren't found in the logs for this snapshot.</span></div>`;
+    }
+    const deltaPts = Math.round((after - before) * 100);
+    const deltaClass = deltaPts > 0 ? "up" : "flat";
+    const deltaStr = deltaPts > 0 ? `+${deltaPts}pt` : `${deltaPts}pt`;
+    const afterSource = node.success_after_eval !== null ? "held-out eval" : "final training rollout";
+    return `
+      <div class="success-block">
+        <div class="success-row">
+          <span>Success rate</span>
+          <span class="success-delta ${deltaClass}">${deltaStr}</span>
+        </div>
+        <div class="success-bars">
+          <div class="success-bar-group">
+            <div class="success-bar-track"><div class="success-bar-fill before" style="width:${Math.round(before * 100)}%"></div></div>
+            <div class="success-bar-label"><span>before</span><b>${fmtPct(before)}</b></div>
+          </div>
+          <div class="success-bar-group">
+            <div class="success-bar-track"><div class="success-bar-fill after" style="width:${Math.round(after * 100)}%"></div></div>
+            <div class="success-bar-label"><span>after (${afterSource})</span><b>${fmtPct(after)}</b></div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function composedMetricBar(label, before, after, opts) {
+    opts = opts || {};
+    const headlineClass = opts.headline ? " headline" : "";
+    if (after === null || after === undefined) {
+      return `<div class="composed-metric${headlineClass}"><div class="composed-metric-label"><span>${label}</span></div><span class="composed-pending-note">not yet run</span></div>`;
+    }
+    let deltaHtml = "";
+    if (before !== null && before !== undefined) {
+      const deltaPts = Math.round((after - before) * 100);
+      const deltaClass = deltaPts > 0 ? "up" : "flat";
+      const deltaStr = deltaPts > 0 ? `+${deltaPts}pt` : `${deltaPts}pt`;
+      deltaHtml = `<span class="composed-delta ${deltaClass}">${deltaStr}</span>`;
+    }
+    const beforeBar = (before !== null && before !== undefined)
+      ? `<div class="success-bar-group">
+           <div class="success-bar-track"><div class="success-bar-fill before" style="width:${Math.round(before * 100)}%"></div></div>
+           <div class="success-bar-label"><span>before (base model)</span><b>${fmtPct(before)}</b></div>
+         </div>`
+      : `<div class="composed-pending-note">baseline eval not yet run</div>`;
+    return `
+      <div class="composed-metric${headlineClass}">
+        <div class="composed-metric-label"><span>${label}</span>${deltaHtml}</div>
+        <div class="success-bars">
+          ${beforeBar}
+          <div class="success-bar-group">
+            <div class="success-bar-track"><div class="success-bar-fill after" style="width:${Math.round(after * 100)}%"></div></div>
+            <div class="success-bar-label"><span>after (final checkpoint)</span><b>${fmtPct(after)}</b></div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderComposedEvalCard(task) {
+    const seq = task.resolved_sequence || [];
+    const crumbs = seq.map((id, i) => {
+      const arrow = i > 0 ? '<span class="arrow">&rarr;</span>' : "";
+      return `${arrow}<span class="crumb">${id}</span>`;
+    }).join("");
+    const before = task.before || {};
+    const after = task.after || {};
+    const el = document.createElement("div");
+    el.className = "composed-card";
+    el.innerHTML = `
+      <div class="composed-instruction">&ldquo;${task.instruction}&rdquo;</div>
+      <div class="composed-breadcrumb">${crumbs}</div>
+      ${composedMetricBar("Full chain success (success_once)", before.success_once, after.success_once, { headline: true })}
+      ${composedMetricBar("Step 1 success", before.subtask_1_success_once, after.subtask_1_success_once)}
+      ${composedMetricBar("Step 2 success", before.subtask_2_success_once, after.subtask_2_success_once)}
+    `;
+    return el;
+  }
+
+  function renderComposedEvals(composedEvals) {
+    const section = document.getElementById("composed-section");
+    if (!composedEvals || !composedEvals.length) { section.style.display = "none"; return; }
+    section.style.display = "";
+    const container = document.getElementById("composed-cards");
+    container.innerHTML = "";
+    composedEvals.forEach((task) => container.appendChild(renderComposedEvalCard(task)));
+  }
+
+  function renderGhostNode(ghost) {
+    const el = document.createElement("div");
+    el.className = "node ghost";
+    el.dataset.nodeId = ghost.id;
+    el.innerHTML = `
+      <div class="ghost-title">${ghost.title}</div>
+      <div class="ghost-sub">${ghost.sub}</div>
+    `;
+    return el;
+  }
+
+  function renderNode(node) {
+    const objs = (node.objects_involved || (node.predicate_args ? Object.values(node.predicate_args).filter((v) => typeof v === "string" && OBJECT_ICON[v]) : []));
+    const uniqueObjs = [...new Set(objs)].filter((o) => OBJECT_ICON[o]);
+    const args = node.predicate_args
+      ? Object.entries(node.predicate_args).map(([k, v]) => `${k}=${v}`).join(", ")
+      : "";
+    const el = document.createElement("div");
+    el.className = "node";
+    el.dataset.status = node.status;
+    el.dataset.nodeId = node.id;
+    el.innerHTML = `
+      <div class="node-top">
+        <span class="node-id mono">${node.id}</span>
+        <span class="status-pill ${node.status}"><span class="dot"></span>${STATUS_LABEL[node.status] || node.status}</span>
+      </div>
+      <div class="node-instruction">${node.instruction || "(no instruction recorded)"}</div>
+      <div class="node-objects">
+        ${uniqueObjs.map((o) => `<span class="obj-chip">${OBJECT_ICON[o]}${o}</span>`).join("")}
+      </div>
+      <div class="predicate-line"><span class="fn">${node.predicate || "?"}</span>(${args})</div>
+      ${renderSuccessBlock(node)}
+    `;
+    return el;
+  }
+
+  function buildTree(nodes) {
+    // Each non-root node's precondition equals exactly one prior node's produces_node, so every
+    // node has at most one parent. Depth = length of precondition.
+    const byProducesKey = new Map();
+    nodes.forEach((n) => byProducesKey.set(JSON.stringify([...n.produces_node].sort()), n.id));
+
+    const parentOf = new Map();
+    nodes.forEach((n) => {
+      const preKey = JSON.stringify([...n.precondition].sort());
+      if (n.precondition.length === 0) { parentOf.set(n.id, null); return; }
+      const parentId = byProducesKey.get(preKey);
+      parentOf.set(n.id, parentId || null);
+    });
+
+    // Where each node's starting states actually come from, per reset_states_path -- checked
+    // against the structural parentOf above so a real reset-plumbing bug (warm-started
+    // correctly per tree shape, but reset from the wrong parent's captured states) shows up as
+    // a mismatch instead of silently. "ROOT" = null reset_states_path (random preset pool).
+    const idByEndStatesFile = new Map();
+    nodes.forEach((n) => idByEndStatesFile.set(n.id + "_end_states.jsonl", n.id));
+    const stateParentOf = new Map();
+    const stateParentUnknown = new Set();
+    nodes.forEach((n) => {
+      if (!n.reset_states_path) { stateParentOf.set(n.id, "ROOT"); return; }
+      const filename = n.reset_states_path.split("/").pop();
+      const resolved = idByEndStatesFile.get(filename);
+      if (resolved) {
+        stateParentOf.set(n.id, resolved);
+      } else {
+        // Points at a real file, but not one produced by any node currently in view -- flag as
+        // unknown rather than silently guessing.
+        stateParentOf.set(n.id, null);
+        stateParentUnknown.add(n.id);
+      }
+    });
+    const mismatchIds = new Set();
+    nodes.forEach((n) => {
+      const structuralParent = parentOf.get(n.id) || "ROOT";
+      const stateParent = stateParentOf.get(n.id);
+      if (stateParentUnknown.has(n.id) || stateParent !== structuralParent) {
+        mismatchIds.add(n.id);
+      }
+    });
+
+    const depthOf = new Map();
+    function depth(id) {
+      if (depthOf.has(id)) return depthOf.get(id);
+      const p = parentOf.get(id);
+      const d = p ? depth(p) + 1 : 0;
+      depthOf.set(id, d);
+      return d;
+    }
+    nodes.forEach((n) => depth(n.id));
+
+    // Ghost placeholders: a non-terminal active leaf (finetuned or training, no discovered
+    // children yet) gets a dashed placeholder in the next row -- its children are only
+    // discovered once its own training + end-state collection finishes.
+    const hasChildren = new Set(nodes.map((n) => parentOf.get(n.id)).filter(Boolean));
+    const terminalKeys = new Set((DATA.terminal_nodes || []).map((t) => JSON.stringify([...t].sort())));
+    const ghosts = [];
+    nodes.forEach((n) => {
+      const isActiveLeaf = (n.status === "finetuned" || n.status === "training_in_progress");
+      const producesKey = JSON.stringify([...n.produces_node].sort());
+      if (isActiveLeaf && !hasChildren.has(n.id) && !terminalKeys.has(producesKey)) {
+        const ghostId = "__ghost__" + n.id;
+        parentOf.set(ghostId, n.id);
+        depthOf.set(ghostId, depthOf.get(n.id) + 1);
+        ghosts.push({
+          id: ghostId,
+          ghost: true,
+          title: n.status === "training_in_progress" ? "Discovered after this edge finishes" : "Not yet discovered",
+          sub: "Grounded in this node's real captured end-states once training + collection complete.",
+        });
+      }
+    });
+
+    // Order each row so children land adjacent to their parent's position in the row above --
+    // otherwise flexbox renders in incoming-data order, which crosses sibling connectors.
+    // Sorted by (index of parent in the previous row's decided order, then id) -- a
+    // barycenter-style pass.
+    const maxDepth = Math.max(0, ...[...depthOf.values()]);
+    const rows = [];
+    let prevOrder = null; // Map(id -> index in previous row)
+    for (let d = 0; d <= maxDepth; d++) {
+      const real = nodes.filter((n) => depthOf.get(n.id) === d);
+      const ghostsAtDepth = ghosts.filter((g) => depthOf.get(g.id) === d);
+      let rowNodes = [...real, ...ghostsAtDepth];
+      if (prevOrder) {
+        rowNodes = rowNodes.slice().sort((a, b) => {
+          const pa = prevOrder.get(parentOf.get(a.id)) ?? 999;
+          const pb = prevOrder.get(parentOf.get(b.id)) ?? 999;
+          if (pa !== pb) return pa - pb;
+          return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+        });
+      }
+      rows.push(rowNodes);
+      prevOrder = new Map(rowNodes.map((n, i) => [n.id, i]));
+    }
+    return { rows, parentOf, stateParentOf, mismatchIds };
+  }
+
+  function render() {
+    const nodes = DATA.nodes;
+    renderSummaryChips(nodes);
+
+    const freshnessEl = document.getElementById("freshness-time");
+    freshnessEl.textContent = "Snapshot: " + timeAgo(DATA.generated_at_utc);
+    freshnessEl.title = DATA.generated_at_utc + " UTC";
+
+    const phaseEl = document.getElementById("driver-phase");
+    const ds = DATA.driver_status;
+    if (ds) {
+      const phaseText = {
+        starting: "driver starting",
+        training: `training ${ds.current_edge || ""}`.trim(),
+        training_done: `${ds.current_edge || ""} trained, collecting states next`.trim(),
+        collecting_end_states: `collecting end-states for ${ds.current_edge || ""}`.trim(),
+        collecting_end_states_done: `${ds.current_edge || ""} states collected`.trim(),
+        DONE: "tree complete",
+        FAILED: "driver failed — see driver_status.json",
+      }[ds.phase] || ds.phase;
+      phaseEl.textContent = phaseText;
+    } else {
+      phaseEl.textContent = "driver not yet launched";
+    }
+
+    const { rows, parentOf, stateParentOf, mismatchIds } = buildTree(nodes);
+    const rowsContainer = document.getElementById("tree-rows");
+    rowsContainer.innerHTML = "";
+    const nodeEls = new Map();
+
+    // Synthetic root-pill "node" -- the actual starting-state pool every depth-0 (precondition
+    // == []) edge resets from. Only shown if there's at least one such node to connect it to.
+    const hasRootRow = rows.length > 0 && rows[0].length > 0;
+    if (hasRootRow) {
+      const rootPillRow = document.createElement("div");
+      rootPillRow.className = "root-pill-row";
+      const pill = document.createElement("div");
+      pill.className = "root-pill";
+      pill.dataset.nodeId = "__ROOT__";
+      pill.textContent = "Random preset pool";
+      rootPillRow.appendChild(pill);
+      rowsContainer.appendChild(rootPillRow);
+      nodeEls.set("__ROOT__", pill);
+    }
+
+    rows.forEach((rowNodes, i) => {
+      const rowWrap = document.createElement("div");
+      const label = document.createElement("div");
+      label.className = "depth-label";
+      label.textContent = i === 0 ? "Root" : `Depth ${i}`;
+      rowWrap.appendChild(label);
+
+      const row = document.createElement("div");
+      row.className = "depth-row";
+      rowNodes.forEach((n) => {
+        const el = n.ghost ? renderGhostNode(n) : renderNode(n);
+        nodeEls.set(n.id, el);
+        row.appendChild(el);
+      });
+      rowWrap.appendChild(row);
+      rowsContainer.appendChild(rowWrap);
+    });
+
+    drawConnectors(nodeEls, parentOf, stateParentOf, mismatchIds);
+    renderComposedEvals(DATA.composed_evals);
+  }
+
+  function drawConnectors(nodeEls, parentOf, stateParentOf, mismatchIds) {
+    const svg = document.getElementById("connector-svg");
+    const wrap = document.getElementById("tree-wrap");
+    svg.innerHTML = "";
+    const wrapRect = wrap.getBoundingClientRect();
+    stateParentOf = stateParentOf || new Map();
+    mismatchIds = mismatchIds || new Set();
+
+    function drawOne(fromEl, toId, toEl, { label, warn, ghost }) {
+      const c = toEl.getBoundingClientRect();
+      const p = fromEl.getBoundingClientRect();
+      const x1 = p.left - wrapRect.left + p.width / 2;
+      const y1 = p.bottom - wrapRect.top;
+      const x2 = c.left - wrapRect.left + c.width / 2;
+      const y2 = c.top - wrapRect.top;
+      const midY = (y1 + y2) / 2;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`);
+      if (ghost) path.classList.add("ghost-line");
+      if (warn) path.classList.add("warn-line");
+      svg.appendChild(path);
+
+      if (label) {
+        const lx = (x1 + x2) / 2;
+        const ly = midY;
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute("x", lx);
+        text.setAttribute("y", ly);
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("dominant-baseline", "middle");
+        text.setAttribute("class", "connector-label" + (warn ? " warn" : ""));
+        text.textContent = label;
+        svg.appendChild(text);
+        // Measure after insertion so the background rect fits the actual rendered text width.
+        const bbox = text.getBBox();
+        const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        bg.setAttribute("x", bbox.x - 4);
+        bg.setAttribute("y", bbox.y - 2);
+        bg.setAttribute("width", bbox.width + 8);
+        bg.setAttribute("height", bbox.height + 4);
+        bg.setAttribute("rx", 4);
+        bg.setAttribute("class", "connector-label-bg");
+        svg.insertBefore(bg, text);
+      }
+    }
+
+    nodeEls.forEach((el, id) => {
+      if (id === "__ROOT__") return;
+      const isGhost = id.startsWith("__ghost__");
+      const parentId = parentOf.get(id);
+
+      if (isGhost) {
+        if (parentId && nodeEls.has(parentId)) {
+          drawOne(nodeEls.get(parentId), id, el, { ghost: true });
+        }
+        return;
+      }
+
+      if (!parentId) {
+        // Connect from the synthetic root pill, labeled with the actual state source (a
+        // mismatch here means reset_states_path disagrees with the structural root).
+        if (!nodeEls.has("__ROOT__")) return;
+        const warn = mismatchIds.has(id);
+        const label = warn ? "⚠ unexpected: not random" : "random start";
+        drawOne(nodeEls.get("__ROOT__"), id, el, { label, warn });
+        return;
+      }
+
+      if (!nodeEls.has(parentId)) return;
+      const warn = mismatchIds.has(id);
+      const stateParent = stateParentOf.get(id);
+      const label = warn
+        ? (stateParent && stateParent !== "ROOT"
+            ? `⚠ resets from ${stateParent}`
+            : "⚠ state source mismatch")
+        : `from ${parentId}`;
+      drawOne(nodeEls.get(parentId), id, el, { label, warn });
+    });
+  }
+
+  render();
+  window.addEventListener("resize", () => {
+    const nodes = DATA.nodes;
+    const { parentOf, stateParentOf, mismatchIds } = buildTree(nodes);
+    const nodeEls = new Map();
+    document.querySelectorAll(".node").forEach((el) => nodeEls.set(el.dataset.nodeId, el));
+    if (document.querySelector(".root-pill")) nodeEls.set("__ROOT__", document.querySelector(".root-pill"));
+    drawConnectors(nodeEls, parentOf, stateParentOf, mismatchIds);
+  });
+</script>
