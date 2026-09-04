@@ -14,37 +14,21 @@
 
 """Real starting-state grounding for Phase A, replacing the screenshot mechanism.
 
-Two real, numeric data sources, both already used elsewhere in this codebase (not invented
-here):
+Two data sources:
 
   - **Root node**: ``RoboLab/assets/objects/polaris/initial_conditions.json`` -- the 100-preset
-    pool PLAN.md calls "the standard 100-preset scattered start". Schema (confirmed by reading
-    the file): ``{"instruction": str, "poses": [ {<name>_eval: [x,y,z,qw,qx,qy,qz]}, ...100... ]}``.
-    Object keys use the task-text alias names (``latteartcup_eval``, ``cuttingboard_eval``,
-    ``coke_eval``, plus ``cleaner_eval`` for an object outside this scene), NOT the real scene
-    object names (``ceramic_mug``, ``cutting_board_a``, ``coke``). Rather than invent a new
-    mapping, this reuses the exact alias table already hardcoded in
-    ``RoboLab/robolab/tasks/benchmark/starting_states.py`` (``load_preset_poses``, read-only
-    reference -- that file is Agent A's territory, not modified here): ``cuttingboard_eval`` ->
-    ``cutting_board_a``, ``latteartcup_eval`` -> ``ceramic_mug``, ``coke_eval`` -> ``coke``.
+    pool. Schema: ``{"instruction": str, "poses": [ {<name>_eval: [x,y,z,qw,qx,qy,qz]}, ... ]}``.
+    Object keys use task-text aliases (``latteartcup_eval``, ``cuttingboard_eval``, ``coke_eval``),
+    not real scene names -- ``ROOT_POSE_KEY_ALIASES`` below maps between them, matching
+    ``RoboLab/robolab/tasks/benchmark/starting_states.py``'s ``load_preset_poses``.
+  - **Non-root nodes**: the real end-states JSONL a producing edge's training run collects.
+    Schema: one JSON object per line, ``{"objects": {<real_object_name>: [x,y,z,qw,qx,qy,qz,
+    vx,vy,vz,wx,wy,wz]}, "robot_joint_pos": [...], "robot_joint_vel": [...]}`` -- real scene
+    names already, no alias table needed.
 
-  - **Non-root nodes**: the real end-states JSONL a producing edge's training run collects,
-    exactly the same mechanism the existing subtask_1 -> subtask_2 handoff already relies on
-    (``save_end_state_path`` / ``reset_states_path``). Schema (confirmed by reading
-    ``rlinf/envs/isaaclab/tasks/robolab_task.py``'s end-state-writing code, read-only --
-    Agent A's territory): one JSON object per line,
-    ``{"objects": {<real_object_name>: [x,y,z,qw,qx,qy,qz, vx,vy,vz, wx,wy,wz]}, "robot_joint_pos":
-    [...], "robot_joint_vel": [...]}`` -- object names here are the real scene names already
-    (``ceramic_mug``, ``coke``, ``cutting_board_a``), no alias table needed.
-
-Only available once a node's producing edge has actually been trained and end-states collected
-(``manifest.get_reset_states_path_for_children(node)`` is real, not ``None``) -- see
-``orchestrator.py``'s module docstring / the coordinator report for the architecture discussion
-of when that's true (root: always; deeper nodes: only once ``discover_and_train`` -- or a
-resumed/partial run -- has actually trained that far). ``summarize_starting_state`` returns
-``None`` when no real data is available yet, and callers (``phase_a.build_phase_a_prompt``)
-render an explicit "no real starting-state data available yet" note in that case rather than
-silently fabricating something.
+Only available once a node's producing edge has been trained and end-states collected
+(``manifest.get_reset_states_path_for_children(node)`` is not ``None``). Returns ``None``
+otherwise -- never fabricates data for a node nothing has run for.
 """
 
 from __future__ import annotations
@@ -56,11 +40,8 @@ from typing import Any, FrozenSet, Iterable, Optional, Union
 from .manifest import Manifest
 from .predicates import find_repo_root
 
-# cuttingboard_eval / latteartcup_eval / coke_eval / cleaner_eval -> real scene object names,
-# reproduced from RoboLab/robolab/tasks/benchmark/starting_states.py's load_preset_poses
-# (read-only reference; that file is Agent A's territory). "latteartcup" is the task-text
-# alias for what the scene actually calls ceramic_mug -- see CLAUDE.md's worked-example note.
-# cleaner_eval has no scene-object counterpart in the 2-object mug/coke scene and is dropped.
+# Task-text alias -> real scene object name, from RoboLab's load_preset_poses. "latteartcup" is
+# the task-text alias for ceramic_mug.
 ROOT_POSE_KEY_ALIASES = {
     "cutting_board_a": "cuttingboard_eval",
     "ceramic_mug": "latteartcup_eval",
@@ -78,10 +59,8 @@ def default_initial_conditions_path() -> Optional[Path]:
 
 def _resolve_root_pose_key(object_name: str, available_keys: Iterable[str]) -> Optional[str]:
     """Best-effort match from a real scene object name to an ``initial_conditions.json`` pose
-    key. Prefers the known alias table (exact, for this scene); falls back to a loose
-    suffix-stripped substring match for objects/scenes this table doesn't cover, so this
-    doesn't hard-fail outside the mug/coke scene -- it just won't find a match, which the
-    caller treats the same as "no data for this object".
+    key. Tries the alias table first, then a loose suffix-stripped substring match for objects
+    the table doesn't cover.
     """
     if object_name in ROOT_POSE_KEY_ALIASES and ROOT_POSE_KEY_ALIASES[object_name] in available_keys:
         return ROOT_POSE_KEY_ALIASES[object_name]
@@ -136,9 +115,7 @@ def summarize_root_starting_state(
     if not any(key_map.values()):
         return None  # none of this scene's objects have any resolvable pose data
 
-    # Evenly-spaced sample (not just the first N) so the summary isn't accidentally biased
-    # towards whatever ordering the preset file happens to store -- deterministic, not random,
-    # so prompts (and any caching keyed on them) stay reproducible.
+    # Evenly-spaced (deterministic, not random) sample so prompts stay reproducible.
     n = max(1, min(num_samples, len(all_poses)))
     stride = max(1, len(all_poses) // n)
     sample_indices = list(range(0, len(all_poses), stride))[:n]
@@ -168,11 +145,8 @@ def summarize_node_starting_state(
 ) -> Optional[str]:
     """Real, numeric summary of a handful of a non-root node's actually-collected end-states.
 
-    Only returns data when ``manifest.get_reset_states_path_for_children(node)`` points at a
-    real, readable JSONL file (i.e. this node's producing edge has actually been trained and
-    end-states actually collected -- see the module docstring / orchestrator.py for when
-    that's true). Returns ``None`` otherwise -- this function never fabricates a plausible-
-    looking state for a node nothing has actually run for yet.
+    Returns ``None`` if ``manifest.get_reset_states_path_for_children(node)`` doesn't point at a
+    real, readable JSONL file -- never fabricates data for a node nothing has run for.
     """
     reset_states_path = manifest.get_reset_states_path_for_children(node)
     if not reset_states_path:
@@ -226,13 +200,7 @@ def summarize_starting_state(
     num_samples: int = 5,
     initial_conditions_path: Optional[Union[str, Path]] = None,
 ) -> Optional[str]:
-    """Dispatch to the root or non-root real-data summarizer, whichever applies to ``node``.
-
-    The single function ``orchestrator.discover_tree``/``discover_and_train`` call for
-    grounding -- it doesn't need to know or care whether it's at the root or resuming deeper
-    into an already-partially-trained tree; it just gets the best real data available, or
-    ``None`` if there genuinely isn't any yet.
-    """
+    """Dispatch to the root or non-root real-data summarizer, whichever applies to ``node``."""
     node = frozenset(node)
     if not node:
         return summarize_root_starting_state(

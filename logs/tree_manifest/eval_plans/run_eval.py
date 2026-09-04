@@ -13,20 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Step 2 of the Phase B GPU-eval payoff milestone: launch the two real, GPU evals (one per
-Step-1-verified resolved plan) SEQUENTIALLY, each using all 8 GPUs, via orchestrator.py's proven
-launch_and_wait() (session-detached, exit-code-file-polled) wrapped in the SAME apptainer +
-run_stage_inner.sh container-launch mechanism driver.py already uses for every real
-training/eval stage in this project (imported directly from driver.py rather than
-re-implemented, so this reuses the exact same proven APPTAINER_BASE_ARGS / SANDBOX_PATH /
-FATAL_LOG_PATTERNS).
+"""Launch the two real GPU evals (one per Step-1-verified resolved plan) sequentially, each
+using all 8 GPUs, via orchestrator.py's launch_and_wait() wrapped in the same apptainer +
+run_stage_inner.sh mechanism driver.py uses (imported from driver.py rather than reimplemented).
 
-Verifies each run via BOTH exit code AND a scan of its own log for driver.py's
-FATAL_LOG_PATTERNS -- never exit code alone (eval_embodiment.sh's `${CMD} 2>&1 | tee ...`
-does not propagate a piped Python process's real exit status; a real, previously-hit bug in
-this project). Checks nvidia-smi is back to ~0 MiB on all 8 GPUs before launching the second
-job, and again after it, aborting (not launching the second job) if the first one failed for a
-real reason.
+Verifies each run via exit code AND a scan of its log for driver.py's FATAL_LOG_PATTERNS, since
+a piped eval_embodiment.sh can report exit 0 on a real crash. Checks nvidia-smi is back to ~0 MiB
+before launching the second job, aborting if the first one failed.
 """
 
 from __future__ import annotations

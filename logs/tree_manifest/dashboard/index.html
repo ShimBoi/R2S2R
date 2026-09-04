@@ -974,10 +974,8 @@
   }
 
   function buildTree(nodes) {
-    // Each non-root node's precondition equals exactly one prior node's produces_node
-    // (linear chain per PLAN.md's edge-per-stage sequencing) -- so every node has at
-    // most one parent. Depth = length of precondition (number of prior subtasks
-    // already satisfied when this edge starts).
+    // Each non-root node's precondition equals exactly one prior node's produces_node, so every
+    // node has at most one parent. Depth = length of precondition.
     const byProducesKey = new Map();
     nodes.forEach((n) => byProducesKey.set(JSON.stringify([...n.produces_node].sort()), n.id));
 
@@ -989,14 +987,10 @@
       parentOf.set(n.id, parentId || null);
     });
 
-    // Where each node's STARTING STATES actually come from, per its own reset_states_path --
-    // independent of (and checked against) the structural precondition/produces_node hierarchy
-    // above. "ROOT" = null reset_states_path = starts from the random preset-scattered pool.
-    // Otherwise derived from the captured-end-states filename convention
-    // (`<producing_edge_id>_end_states.jsonl`, see extract_dashboard_data.py / driver.py) --
-    // resolving it back to whichever node id produced that file, so a real plumbing bug (this
-    // edge trained/warm-started correctly, per the tree shape, but was actually RESET from the
-    // wrong parent's captured states) shows up as a mismatch against parentOf, not silently.
+    // Where each node's starting states actually come from, per reset_states_path -- checked
+    // against the structural parentOf above so a real reset-plumbing bug (warm-started
+    // correctly per tree shape, but reset from the wrong parent's captured states) shows up as
+    // a mismatch instead of silently. "ROOT" = null reset_states_path (random preset pool).
     const idByEndStatesFile = new Map();
     nodes.forEach((n) => idByEndStatesFile.set(n.id + "_end_states.jsonl", n.id));
     const stateParentOf = new Map();
@@ -1008,9 +1002,8 @@
       if (resolved) {
         stateParentOf.set(n.id, resolved);
       } else {
-        // Points at a real file, but not one produced by any node currently in view (e.g. an
-        // end-states file from a node this snapshot doesn't have data for) -- flag as unknown
-        // rather than silently guessing.
+        // Points at a real file, but not one produced by any node currently in view -- flag as
+        // unknown rather than silently guessing.
         stateParentOf.set(n.id, null);
         stateParentUnknown.add(n.id);
       }
@@ -1034,11 +1027,9 @@
     }
     nodes.forEach((n) => depth(n.id));
 
-    // Ghost placeholders: any node that's a real, non-terminal "active leaf" (finetuned or
-    // currently training, with no discovered children yet) gets a dashed placeholder in the
-    // next row -- this is what actually happens under the interleaved discover_and_train
-    // architecture: a node's children are only ever discovered for real once ITS training +
-    // end-state collection finishes, so nothing deeper than the current frontier is known yet.
+    // Ghost placeholders: a non-terminal active leaf (finetuned or training, no discovered
+    // children yet) gets a dashed placeholder in the next row -- its children are only
+    // discovered once its own training + end-state collection finishes.
     const hasChildren = new Set(nodes.map((n) => parentOf.get(n.id)).filter(Boolean));
     const terminalKeys = new Set((DATA.terminal_nodes || []).map((t) => JSON.stringify([...t].sort())));
     const ghosts = [];
@@ -1058,13 +1049,10 @@
       }
     });
 
-    // Order each row so children land adjacent to their own parent's position in the row
-    // above -- otherwise flexbox just renders nodes in incoming-data order, which routinely
-    // puts a node far from its actual parent and makes sibling connectors cross for no
-    // structural reason. Root row keeps natural (id) order since it has no parent row to
-    // inherit from; every row after that is sorted by (index of its parent within the
-    // PREVIOUS row's already-decided order, then id) -- a standard "barycenter"-style pass,
-    // more than enough for trees this shallow/narrow.
+    // Order each row so children land adjacent to their parent's position in the row above --
+    // otherwise flexbox renders in incoming-data order, which crosses sibling connectors.
+    // Sorted by (index of parent in the previous row's decided order, then id) -- a
+    // barycenter-style pass.
     const maxDepth = Math.max(0, ...[...depthOf.values()]);
     const rows = [];
     let prevOrder = null; // Map(id -> index in previous row)
@@ -1212,9 +1200,8 @@
       }
 
       if (!parentId) {
-        // Root-level real node -- connect from the synthetic root pill, labeled with the
-        // ACTUAL state source (should always be "Random start" here; if reset_states_path
-        // says otherwise, that's exactly the kind of bug this view exists to surface).
+        // Connect from the synthetic root pill, labeled with the actual state source (a
+        // mismatch here means reset_states_path disagrees with the structural root).
         if (!nodeEls.has("__ROOT__")) return;
         const warn = mismatchIds.has(id);
         const label = warn ? "⚠ unexpected: not random" : "random start";

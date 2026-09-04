@@ -15,21 +15,14 @@
 """Predicate menu extraction and Phase A candidate validation.
 
 ``conditionals.py`` (``RoboLab/robolab/core/task/conditionals.py``) is the ground truth for
-which predicate names exist (~35 ``@atomic``/``@composite`` functions per PLAN.md). Importing
-it for real pulls in ``isaaclab`` transitively (via ``robolab.core.world.world_state``), which
-needs a GPU/container -- not something a plain ``pytest`` run should require. So predicate names
-and signatures are extracted here by parsing the *source* with ``ast``, never by importing the
-module. ``validate_phase_a`` is written to accept either that AST-derived name set OR the real,
-live-imported ``conditionals`` module (production code inside the container can pass the actual
-module, exactly as PLAN.md section 4's sketch does: ``predicate_module=conditionals``) -- both
-paths go through the same ``hasattr``-style check.
+which predicate names exist. Importing it for real pulls in ``isaaclab`` transitively, which
+needs a GPU/container, so predicate names/signatures are extracted here by parsing the source
+with ``ast`` instead. ``validate_phase_a`` also accepts a real, live-imported ``conditionals``
+module in production, via the same ``hasattr``-style check.
 
-A human-facing predicate menu (for the Phase A prompt, which wants "use when" / "key params"
-framing, not just names) already exists, checked once, at
-``RoboLab/skills/robolab-taskgen/references/conditionals.md`` -- PLAN.md's "extracted once from
-conditionals.md" instruction turns out to already be done; ``build_predicate_menu`` prefers it
-and only falls back to an AST-derived (name + docstring first line) listing if that file is ever
-missing.
+``build_predicate_menu`` prefers the human-curated
+``RoboLab/skills/robolab-taskgen/references/conditionals.md`` (has "use when" framing for the
+prompt) and falls back to an AST-derived listing if that file is missing.
 """
 
 from __future__ import annotations
@@ -44,11 +37,8 @@ _ATOMIC_DECORATOR_NAMES = {"atomic", "composite"}
 def find_repo_root(start: Path) -> Optional[Path]:
     """Walk up from ``start`` looking for the directory that contains ``RoboLab/`` as a sibling.
 
-    Avoids hardcoding a fixed number of ``.parent`` hops, which would silently break if this
-    package ever moves. Returns ``None`` (rather than raising) if not found, since this module
-    must stay importable even in a checkout that doesn't have RoboLab at all -- callers decide
-    whether that's fatal. Public (not `_`-prefixed) because ``starting_states.py`` reuses it too
-    -- one repo-root-finding implementation, not two copies that could drift.
+    Returns ``None`` if not found -- this module stays importable in a checkout without RoboLab;
+    callers decide whether that's fatal. Also used by ``starting_states.py``.
     """
     for candidate in [start] + list(start.parents):
         if (candidate / "RoboLab").is_dir():
@@ -85,9 +75,8 @@ def list_predicate_signatures(
     """Parse ``conditionals.py`` with ``ast`` and return ``{name: {"args": [...], "doc": str}}``.
 
     Only top-level ``def``/``async def`` decorated with ``@atomic`` or ``@composite`` are
-    included -- matches exactly what ``conditionals.py``'s own docstring says the module
-    contains, and what a caller like ``getattr(conditionals, spec["predicate"])`` would
-    actually be able to dispatch to at runtime.
+    included -- these are the functions ``getattr(conditionals, spec["predicate"])`` can dispatch
+    to at runtime.
     """
     path = Path(conditionals_py_path) if conditionals_py_path else default_conditionals_py_path()
     if path is None or not path.is_file():
@@ -149,22 +138,10 @@ def build_predicate_menu(
     return "\n".join(lines)
 
 
-# Classification of conditionals.py's predicates into "represents a goal actually reached by
-# manipulating something" vs. "an ambient/passive property that's weak (or wrong) as a
-# standalone task's *sole* success criterion". Single source of truth for both the Phase A
-# prompt's guidance text (phase_a.py imports these rather than defining its own copy) and the
-# hard structural filter in validate_phase_a below -- moved here (from phase_a.py) specifically
-# so the prompt's claims about what's allowed and what actually gets enforced can never drift
-# apart. Sourced from conditionals.md's own section groupings: "Containment & Placement" +
-# "Stacking" + "Multi-Group" + object_picked_up are manipulation goals; "Spatial Relations"
-# (pure relative position, no manipulation implied on its own) + object_upright/object_grabbed/
-# object_dropped/objects_stationary + wrong_object_grabbed are ambient/transient/negative.
-#
-# Originally (first Phase A prompt revision) this classification was ONLY prompt guidance --
-# "if you propose one of these, justify it". A real discover_tree() run still produced
-# `coke_next_to_ceramic_mug` (object_next_to) despite that wording. Per the coordinator's
-# follow-up, AMBIENT_STATE_PREDICATES is now also a hard rejection filter in validate_phase_a
-# (reject_ambient_predicates=True by default) -- guaranteed, not hoped-for.
+# Classification of conditionals.py's predicates into "a goal actually reached by manipulating
+# something" vs. "an ambient/passive property, weak or wrong as a task's sole success criterion".
+# Single source of truth for both the Phase A prompt's guidance text (phase_a.py imports these)
+# and the hard filter in validate_phase_a below, so the two can't drift apart.
 MANIPULATION_GOAL_PREDICATES = (
     "object_in_container",
     "object_on_top",
@@ -208,14 +185,10 @@ _BASE_BEARING_PREDICATES = {"object_on_top", "stacked"}
 def _predicate_known(name: str, predicate_module: Any) -> bool:
     """True if ``name`` names a real predicate, per whatever ``predicate_module`` is.
 
-    Accepts, in order of what's most convenient for the caller:
-      - ``None``: no validation possible -- permissive (accepts everything). Callers that want
-        strict validation should always pass a real module or name set.
-      - a ``set``/``frozenset``/``list``/``tuple`` of names (e.g. from ``list_predicate_names``).
-      - anything else (a real imported module, or any object with attribute access): checked via
-        ``hasattr``/``callable``, exactly mirroring how the runtime mixin dispatches predicates
-        (``getattr(conditionals, spec["predicate"])``) -- if ``getattr`` would work there, it
-        passes validation here.
+    ``None`` is permissive (accepts everything). A ``set``/``frozenset``/``list``/``tuple`` is
+    checked by membership. Anything else (a real imported module) is checked via
+    ``hasattr``/``callable``, mirroring how the runtime mixin dispatches
+    (``getattr(conditionals, spec["predicate"])``).
     """
     if predicate_module is None:
         return True
@@ -225,11 +198,9 @@ def _predicate_known(name: str, predicate_module: Any) -> bool:
 
 
 def _base_objects_for_candidate(candidate: dict[str, Any]) -> Optional[list[str]]:
-    """Which object name(s) act as the BASE (the thing rested ON) for a
-    ``stacked``/``object_on_top`` candidate, or ``None`` if that can't be determined from this
-    candidate (e.g. ``stacked`` without ``order == "bottom_to_top"`` -- ambiguous which end of
-    the list is the base, so ``stable_base_objects`` deliberately does not enforce anything in
-    that case rather than risk wrongly rejecting a valid unordered stack).
+    """Which object name(s) act as the BASE for a ``stacked``/``object_on_top`` candidate, or
+    ``None`` if that can't be determined (e.g. ``stacked`` without ``order == "bottom_to_top"``,
+    where it's ambiguous which end of the list is the base).
     """
     predicate = candidate.get("predicate")
     args = candidate.get("predicate_args")
@@ -257,33 +228,23 @@ def validate_phase_a(
     stable_base_objects: Optional[Iterable[str]] = None,
     on_reject: Optional[Callable[[dict[str, Any], str], None]] = None,
 ) -> list[dict[str, Any]]:
-    """Filter Phase A candidates down to well-formed, valid ones, per PLAN.md sections 3/4.
+    """Filter Phase A candidates down to well-formed, valid ones.
 
-    Rejects (silently drops, unless ``on_reject`` is given a callback to observe why) any
-    candidate that:
+    Rejects (drops, or reports to ``on_reject`` if given) any candidate that:
       - is missing a required field (``id``, ``predicate``, ``predicate_args``, ``instruction``,
         ``objects_involved``);
-      - references an object name not in ``known_objects`` (checked against
-        ``objects_involved``, the field the spec (PLAN.md section 2) designates for this);
-      - uses a predicate in ``AMBIENT_STATE_PREDICATES`` (a pure relative-position/orientation/
-        transient-gripper check -- can already hold from the random initial scatter, or isn't a
-        completed manipulation goal on its own) -- HARD rejection, not just discouraged by
-        prompt wording, when ``reject_ambient_predicates=True`` (the default). This is the
-        structural fix for a real leak: prompt guidance alone still let
-        ``coke_next_to_ceramic_mug`` (``object_next_to``) through on a live run.
+      - references an object name not in ``known_objects``;
+      - uses a predicate in ``AMBIENT_STATE_PREDICATES`` (a relative-position/orientation/
+        transient-gripper check that isn't a completed manipulation goal on its own) when
+        ``reject_ambient_predicates=True`` (the default);
       - for ``object_on_top``/``stacked`` (``order="bottom_to_top"``) candidates, when
-        ``stable_base_objects`` is given: uses a base/reference object that ISN'T in
-        ``stable_base_objects``. Opt-in (``None`` by default -- disabled) because "which objects
-        make a physically stable base" is scene-specific, hand-curated knowledge (no geometry
-        data available in this pipeline to derive it automatically), not a general rule this
-        function should silently impose on every caller/scene. See ``orchestrator.py``'s
-        docstring for the judgment call on when to actually pass this.
+        ``stable_base_objects`` is given: uses a base object not in that set. Opt-in and
+        disabled by default -- "physically stable base" is scene-specific, hand-curated
+        knowledge this pipeline has no geometry data to derive automatically.
       - names a predicate not known to ``predicate_module`` (see ``_predicate_known``).
 
-    Never raises on a malformed *candidate* -- a VLM proposing something invalid is an expected,
-    not exceptional, outcome; the caller (``discover_tree``) just gets fewer/zero valid
-    candidates back. Malformed input to this function itself (e.g. ``candidates`` not being a
-    list of dicts) is allowed to raise naturally.
+    Never raises on a malformed candidate -- a VLM proposing something invalid is expected, not
+    exceptional. Malformed input to this function itself is allowed to raise naturally.
     """
     known_objects = set(known_objects)
     stable_base_objects_set = set(stable_base_objects) if stable_base_objects is not None else None
@@ -308,10 +269,7 @@ def validate_phase_a(
             elif reject_ambient_predicates and candidate["predicate"] in AMBIENT_STATE_PREDICATES:
                 reason = (
                     "ambient/state-only predicate not allowed as a subtask's sole success "
-                    f"criterion: {candidate['predicate']!r} (see AMBIENT_STATE_PREDICATES -- a "
-                    "pure relative-position/orientation/transient-gripper check can already "
-                    "hold from the random initial scatter, or isn't a completed manipulation "
-                    "goal on its own)"
+                    f"criterion: {candidate['predicate']!r}"
                 )
             elif not _predicate_known(candidate["predicate"], predicate_module):
                 reason = f"unknown predicate: {candidate['predicate']!r}"

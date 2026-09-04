@@ -13,66 +13,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Autonomous driver: walks the rest of the VLM-discovered subtask tree for the mug/coke/
-cutting-board scene, unattended, for however many real edges remain.
+"""Autonomous driver: walks the VLM-discovered subtask tree for the mug/coke/cutting-board
+scene, unattended, for however many real edges remain.
 
-REVISED (architecture correction): the first version of this driver called
-``discover_and_train()`` (pre-order DFS) starting from a NON-root node -- it would have only
-ever walked one lineage below that node, never training the root's other child (or any other
-sibling branch), permanently. Killed before any real training completed under that shape (zero
-checkpoints lost). Now uses ``discover_and_train_by_level()`` (breadth-first / level-order),
-starting from the TRUE root (``frozenset()``), which fully trains every edge at each depth
-across the WHOLE frontier before advancing to the next depth -- see that function's docstring in
-orchestrator.py for the full "why".
+Uses ``discover_and_train_by_level()`` (breadth-first), starting from the true root
+(``frozenset()``), which fully trains every edge at each depth before advancing to the next.
 
-Seeded (via ``INITIAL_EDGES_BY_NODE``, see below) with everything already real and already
-known, so this driver pays for zero redundant Phase A calls at startup:
-  - the root's candidates (``ROOT_CANDIDATES_PATH``) -- from the ORIGINAL real discover_tree()
-    root call earlier in this session. Deliberately limited to the two candidates
-    (place_mug_on_cutting_board, place_coke_on_cutting_board) the coordinator's architecture-fix
-    message described ("both candidates") -- a real third validated root candidate
-    (line_up_objects, objects_in_line) was also discovered in that original call but is NOT
-    included here, preserved instead at
-    ``root_candidates_excluded_pending_confirmation.json`` -- training it too would add a third
-    ~13h+ real commitment beyond what was explicitly described, so it's flagged for an explicit
-    decision rather than silently included or silently dropped.
-  - edge 1's children (``INITIAL_EDGES_PATH``) -- from the real, end-states-grounded Phase A
-    call for node {place_mug_on_cutting_board} (the first genuine test of non-root state
-    grounding, per the coordinator's own request for that step).
-place_mug_on_cutting_board itself is already trained and persisted in the manifest;
-``discover_and_train_by_level``'s content-based match (see ``_find_matching_existing_edge`` in
-orchestrator.py) recognizes it when the root frontier is processed and skips retraining it,
-advancing straight to its already-known children.
+Seeded via ``INITIAL_EDGES_BY_NODE`` with already-discovered candidates so this driver pays for
+zero redundant Phase A calls at startup: the root's candidates (``ROOT_CANDIDATES_PATH``) and
+edge 1's children (``EDGE1_CHILDREN_PATH``). A third real root candidate
+(``line_up_objects``/``objects_in_line``) is kept out and preserved at
+``root_candidates_excluded_pending_confirmation.json`` rather than trained automatically.
+``place_mug_on_cutting_board`` is already trained and persisted in the manifest;
+``discover_and_train_by_level``'s content-based match recognizes it on the root frontier and
+skips retraining, advancing straight to its known children.
 
-From there it calls discover_and_train_by_level() with real run_training/collect_end_states
-callables that shell out to the actual apptainer container (the same binds/env vars as
-enter_robolab.sh, proven working across edge 1's training + collection runs), fully
-session-detached per launch via orchestrator.launch_and_wait -- exactly the same mechanism, same
-setsid+redirected-stdio+exitcode-poll pattern, already proven for every real launch so far in
-this project.
+``run_training``/``collect_end_states`` shell out to the apptainer container (same
+binds/env vars as ``enter_robolab.sh``), fully session-detached via
+``orchestrator.launch_and_wait``.
 
-This whole PROCESS is meant to be launched via launch_driver.sh (setsid + redirected stdio +
-disown), so it itself survives independent of any agent/coordinator session for its entire
-multi-day lifetime -- discover_and_train_by_level's per-edge polling loops block THIS process,
-which is fine and intended, since this process has nothing else to do and is not tied to
-anyone's terminal.
+Meant to be launched via ``launch_driver.sh`` (setsid + redirected stdio + disown) so it survives
+independent of any calling session for its entire multi-day lifetime.
 
-Progress is written to STATUS_PATH (JSON, updated at every stage transition) alongside stdout/
-stderr (redirected by the launcher to driver.log) -- both are meant to make "what's happening /
-what happened" diagnosable after the fact without needing to babysit this process live.
+Progress is written to ``STATUS_PATH`` (JSON, updated at every stage transition) alongside
+stdout/stderr (redirected by the launcher to ``driver.log``).
 
-Stops (raises, non-zero exit, clear status="FAILED") on: a training or collection subprocess
-failing -- checked by BOTH exit code AND a scan of its own log for known fatal signatures, never
-exit code alone (a real, observed failure mode this session: eval_embodiment.sh's
-`${CMD} 2>&1 | tee ...` does not propagate a piped Python process's real exit status, so a
-genuine crash -- IsADirectoryError from `torch.load()`-ing a LoRA directory as runner.ckpt_path,
-in this session's own history -- reported exit code 0 and would have been silently treated as
-"succeeded" without the log scan) -- or on hitting max_depth/max_total_edges. Never auto-retries;
-a human should look at STATUS_PATH + the specific stage's own log before deciding what happens
-next. This intentionally does NOT implement crash-resume for the DRIVER process itself (if this
-whole process dies and gets relaunched from scratch, it would redo whatever level was in
-progress -- out of scope for this task; the coordinator asked for one unattended run through the
-rest of the tree, not a resumable job queue).
+Stops on a training/collection subprocess failing -- checked by exit code AND a scan of its own
+log for fatal signatures, since a piped ``eval_embodiment.sh`` can report exit 0 on a real crash
+-- or on hitting ``max_depth``/``max_total_edges``. Never auto-retries. Does not implement
+crash-resume for the driver process itself: a relaunch after a crash redoes whatever level was
+in progress.
 """
 
 from __future__ import annotations
@@ -105,12 +75,11 @@ from rlinf.envs.isaaclab.tasks.discovery.predicates import (  # noqa: E402
 )
 
 # ---------------------------------------------------------------------------
-# Fixed, scene-specific configuration for this run (mug/coke/cutting-board scene -- see
-# CLAUDE.md / PLAN.md section 8 for why this is the scene, not a generic driver parameter).
+# Fixed, scene-specific configuration for this run (mug/coke/cutting-board scene).
 # ---------------------------------------------------------------------------
 
 SCENE_OBJECTS = ["ceramic_mug", "coke", "cutting_board_a"]
-STABLE_BASE_OBJECTS = {"cutting_board_a"}  # see orchestrator.py's "JUDGMENT CALL" docstring
+STABLE_BASE_OBJECTS = {"cutting_board_a"}
 CONFIG_NAME = "generic_single_edge_grpo_openpi_pi05"
 MAX_EPOCHS = 60  # matches runner.max_epochs in that config -- final checkpoint is global_step_60
 
@@ -124,16 +93,13 @@ EDGE1_CHILDREN_PATH = MANIFEST_DIR / "edge1_children.json"
 LAUNCH_SCRIPTS_DIR = MANIFEST_DIR / "launch_scripts"
 STAGE_INNER_SCRIPT = LAUNCH_SCRIPTS_DIR / "run_stage_inner.sh"
 
-# Edge 1's checkpoint -- the base this continuation warm-starts from (the single lineage's
-# starting point; place_mug_on_cutting_board itself is skipped as already-trained once
-# discover_and_train_by_level's root-frontier processing recognizes it in the manifest -- see
-# module docstring). Written by the interactive step that trained edge 1.
+# Edge 1's checkpoint -- the base this continuation warm-starts from. Written by the
+# interactive step that trained edge 1.
 BASE_CHECKPOINT = (MANIFEST_DIR / "edge1_checkpoint.txt").read_text().strip()
 
 FATAL_LOG_PATTERNS = (
     "Traceback (most recent call last)",
-    "Error:",  # broad on purpose (catches IsADirectoryError:, RuntimeError:, KeyError:, ...) --
-    # see module docstring: a real run's exit code alone was NOT trustworthy.
+    "Error:",  # broad on purpose: catches IsADirectoryError:, RuntimeError:, KeyError:, ...
     "Exiting main process due to a failure",
     "Segmentation fault",
     "No device could be created",
@@ -217,9 +183,8 @@ def _launch_stage_and_verify(
     poll_interval_s: float = 120.0,
 ) -> str:
     """Launch one real training/collection stage inside the container, wait for it, and verify
-    it actually succeeded (exit code 0 AND no fatal signature in its own log -- see module
-    docstring for why the exit code alone is not trustworthy here). Returns the log dir on
-    success; raises RuntimeError with a clear message on failure.
+    it actually succeeded (exit code 0 AND no fatal signature in its own log). Returns the log
+    dir on success; raises RuntimeError on failure.
     """
     log_dir.mkdir(parents=True, exist_ok=True)
     overrides_file = log_dir / "overrides.txt"
@@ -297,15 +262,10 @@ def make_collect_end_states():
             log_dir=str(log_dir),
             checkpoint=checkpoint,
         )
-        # Real bug, fixed here (confirmed on a live run for place_coke_on_cutting_board):
-        # config_spec.overrides may already carry a training-time
-        # +actor.model.lora_path=<parent checkpoint> (the warm-start override
-        # generate_training_config baked in for the TRAINING launch). This collection pass
-        # needs its OWN lora_path (this edge's just-trained checkpoint, passed below via
-        # `lora_path=checkpoint` -> run_stage_inner.sh's LORA_PATH), so the stale training-time
-        # one must be stripped first -- otherwise Hydra sees the key twice and raises
-        # ConfigCompositionException ("Could not append to config. An item is already at
-        # 'actor.model.lora_path'"), exactly what happened here originally.
+        # config_spec.overrides may already carry a training-time lora_path (the warm-start
+        # override). This collection pass needs its own lora_path (passed below via
+        # `lora_path=checkpoint`), so the stale one must be stripped first or Hydra raises
+        # ConfigCompositionException on the duplicate key.
         overrides = strip_actor_lora_path_override(config_spec.overrides) + [
             f"env.eval.init_params.save_end_state_path={end_states_path}"
         ]
@@ -340,13 +300,9 @@ def make_collect_end_states():
 
 # ---------------------------------------------------------------------------
 # resume affordance: a prior run trained an edge for real, then failed before its end-states
-# were collected and it got persisted into the manifest -- discover_and_train_by_level's own
-# "already trained, don't retrain" recognition (_find_matching_existing_edge in orchestrator.py)
-# only looks at the MANIFEST, so it doesn't know about this dangling real checkpoint. Without
-# this, a plain restart would retrain the exact same edge from scratch, wasting the real GPU
-# hours already spent. Real, not hypothetical: this happened to place_coke_on_cutting_board
-# (training succeeded; the subsequent collection stage crashed on a real Hydra
-# ConfigCompositionException bug, now fixed above).
+# were collected and persisted into the manifest. discover_and_train_by_level's "already
+# trained, don't retrain" recognition only looks at the manifest, so without this a restart
+# would retrain the same edge from scratch, wasting GPU hours already spent.
 # ---------------------------------------------------------------------------
 
 
@@ -364,10 +320,8 @@ def _resume_dangling_trained_edge(
     collect_end_states_fn,
 ) -> None:
     """If STATUS_PATH shows an edge that finished training (has a real ``checkpoint``) but was
-    never persisted into ``manifest`` (collection either never ran or failed before
-    ``manifest.add_edge``), finish it now: collect its end-states for real and persist it --
-    WITHOUT retraining, since the checkpoint already exists for real on disk. A no-op (returns
-    immediately) if there's nothing dangling to resume, so this is always safe to call.
+    never persisted into ``manifest``, finish it now: collect its end-states and persist it,
+    without retraining. A no-op if there's nothing dangling to resume.
     """
     if not STATUS_PATH.exists():
         return
@@ -413,9 +367,8 @@ def _resume_dangling_trained_edge(
         reset_states_path=edge.get("reset_states_path"),
         spec_dir=SPEC_DIR,
         config_name=CONFIG_NAME,
-        # Inert for the collection call itself (make_collect_end_states strips whatever
-        # lora_path ends up in config_spec.overrides and substitutes its own) -- passed only so
-        # config_spec matches what the original training run actually used, for log consistency.
+        # Inert here (make_collect_end_states strips and substitutes its own lora_path) --
+        # passed only so config_spec matches the original training run for log consistency.
         lora_path=status.get("warm_start_from"),
     )
     child_states_path = collect_end_states_fn(edge, checkpoint, config_spec)
@@ -463,12 +416,8 @@ def main() -> int:
     log(f"{len(predicate_module)} known predicates loaded")
 
     try:
-        # Resume affordance -- see its own docstring. Must run BEFORE discover_and_train_by_level:
-        # it needs to persist any dangling-but-really-trained edge into the manifest first, so
-        # that function's own "already trained, don't retrain" recognition (which only looks at
-        # the manifest) picks it up correctly during root-frontier processing. Inside the same
-        # try/except as the main walk below, so a failure here also gets a clean status="FAILED"
-        # + traceback instead of an uncaught crash.
+        # Must run before discover_and_train_by_level, so its "already trained, don't retrain"
+        # recognition picks up any dangling edge during root-frontier processing.
         _resume_dangling_trained_edge(manifest, initial_edges_by_node, make_collect_end_states())
 
         final_checkpoint = discover_and_train_by_level(
@@ -485,11 +434,8 @@ def main() -> int:
             initial_edges_by_node=initial_edges_by_node,
             run_training=make_run_training(),
             collect_end_states=make_collect_end_states(),
-            # Purely additive progress logging for the dashboard: writes
-            # level_<depth>_queue.json (deduped ids, the whole level's edges, before any of
-            # them train) to MANIFEST_DIR as soon as each depth's discovery completes. See
-            # discover_and_train_by_level's own docstring for why this has to be the single
-            # source of truth rather than re-deriving "what's queued" from the raw seed files.
+            # Progress logging for the dashboard: writes level_<depth>_queue.json to
+            # MANIFEST_DIR as soon as each depth's discovery completes.
             level_queue_dir=MANIFEST_DIR,
         )
     except Exception as exc:

@@ -14,36 +14,16 @@
 
 """Thin, injectable wrapper around whatever VLM/LLM API is actually configured.
 
-An ``OPENAI_API_KEY`` is available via ``/scratch/cluster/jshim12/.env`` (workspace root, not
-committed, not read directly by this module -- load it into the shell env before running
-anything that hits ``_raw_call``, e.g. ``set -a; source /scratch/cluster/jshim12/.env; set +a``).
-The ``openai`` package is installed in ``RLinf/.venv``. Cost-sensitive: the user is paying for
-this key out of pocket, so callers should avoid making VLM calls speculatively/repeatedly --
-each ``discover_tree()``/``resolve_plan()`` run should make the minimum calls its own logic
-requires (only at genuine branch points for Phase B; once per node for Phase A), never re-run
-"just to check."
+Backend (Anthropic or OpenAI) is chosen by whichever API key is set, Anthropic preferred if both
+are. Both SDK imports are lazy (inside the call functions) so importing this module never
+requires either package installed.
 
-What was true when this module was first written (kept for history; ANTHROPIC_API_KEY still
-isn't set, so the anthropic path below remains untested against a real key):
-  - Neither the ``anthropic`` nor the ``openai`` package was installed in ``RLinf/.venv`` or the
-    ``polaris`` conda env.
-  - The one precedent anywhere in this checkout for calling an external LLM API is
-    ``RoboLab/assets/scenes/_utils/chatgpt_multiview.py``: OpenAI, key from
-    ``os.environ["OPENAI_API_KEY"]``, ``from openai import OpenAI``. Everything else that
-    matched a grep for "anthropic"/"openai" (``rlinf/config.py``'s ``openai_gelu`` activation
-    function, the SGLang worker's OpenAI-*protocol*-compatible server, the agent-lightning
-    examples pointing an OpenAI client at a local vLLM/SGLang server) is unrelated to calling a
-    real hosted VLM for judging/planning.
+``_raw_call`` is the only function that makes a real network call. ``call_vlm_phase_a``/
+``call_vlm_phase_b`` take a ``client_fn`` parameter defaulting to it, swappable for a fake in
+tests.
 
-So there is no existing "reuse this" plumbing to call into for the actual network request --
-this module builds it, supporting both backends (chosen by whichever API key is set,
-Anthropic preferred if both are), and keeps both SDK imports lazy (inside the call functions,
-not at module level) so importing this module never requires either package to be installed.
-
-The one and only place that can make a real network call is ``_raw_call``. Every public
-``call_vlm_phase_a``/``call_vlm_phase_b`` (in ``phase_a.py``/``phase_b.py``) takes a
-``client_fn`` parameter that defaults to it but can be swapped for a fake -- that's the seam
-tests use to inject canned responses instead of hitting the network.
+Cost-sensitive: callers should avoid making VLM calls speculatively -- each
+``discover_tree()``/``resolve_plan()`` run should make only the calls its own logic requires.
 """
 
 from __future__ import annotations
@@ -106,7 +86,7 @@ def _raw_call_anthropic(prompt: str, image_b64: Optional[str], model: str) -> st
 
 
 def _raw_call_openai(prompt: str, image_b64: Optional[str], model: str) -> str:
-    from openai import OpenAI  # lazy; mirrors RoboLab/assets/scenes/_utils/chatgpt_multiview.py
+    from openai import OpenAI  # lazy
 
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     content: list[dict] = [{"type": "text", "text": prompt}]
@@ -154,10 +134,8 @@ def call_vlm(
     """
     raw_text = client_fn(prompt, image_b64=image_b64, model=model)
     text = raw_text.strip()
-    # Tolerate a ```json ... ``` fenced block, a common VLM habit despite "return ONLY JSON" --
-    # extract just the fenced block's contents (a regex search, not a strip()), since some
-    # models (observed: gpt-4o) append trailing prose commentary *after* the closing fence,
-    # which a naive text.strip("`") leaves in place and breaks json.loads with "Extra data".
+    # Tolerate a ```json ... ``` fenced block despite "return ONLY JSON" -- extract via regex
+    # search rather than strip("`"), since some models append prose after the closing fence.
     fence_match = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
     if fence_match:
         text = fence_match.group(1).strip()

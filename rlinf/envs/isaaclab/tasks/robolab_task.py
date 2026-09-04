@@ -28,23 +28,20 @@ class NoAutoResetManagerBasedRLEnv:
     externally (auto_reset=False). This mixin makes _reset_idx a no-op for the
     duration of each step() call so resets only happen via explicit env.reset().
 
-    Also optionally drives a VLM-simulated long-horizon subtask handoff, controlled
-    entirely by the class attributes below (set per-instance by
-    RoboLabDroidEnv._make_env_function from `init_params.subtasks`/`edge_spec`/`plan`/
-    `mode`/`save_end_state_path`). When none of `_subtasks_cfg`/`_edge_spec`/
-    `_active_plan` is set (the default), the handoff logic is skipped entirely and the
+    Also optionally drives a VLM-simulated long-horizon subtask handoff, controlled by the class
+    attributes below (set per-instance by RoboLabDroidEnv._make_env_function from
+    `init_params.subtasks`/`edge_spec`/`plan`/`mode`/`save_end_state_path`). When none of
+    `_subtasks_cfg`/`_edge_spec`/`_active_plan` is set, the handoff logic is skipped and the
     mixin only suppresses auto-reset.
 
     Two families of modes:
-      - The original, hardcoded two-subtask pipeline (mug then coke -- see
-        long_horizon_task_composition_plan.md): "subtask_1" | "subtask_2" | "full",
-        driven by `_subtasks_cfg`. Unchanged by the generalization below.
-      - The generalized, tree-discovered pipeline (PLAN.md): "single_edge" (one
-        training-mode edge, driven by `_edge_spec` -- see generic_single_edge_task.py)
-        and "plan" (the eval-time ratchet over however many steps a resolved plan has,
-        driven by `_active_plan` -- see generic_eval_task.py). Both dispatch their
-        predicate(s) by name via robolab.core.task.conditionals instead of hardcoding
-        object_on_top, per PLAN.md section 5.1.
+      - "subtask_1" | "subtask_2" | "full": the original hardcoded two-subtask pipeline (mug
+        then coke), driven by `_subtasks_cfg`.
+      - "single_edge" | "plan": the generalized, tree-discovered pipeline. "single_edge" trains
+        one edge (`_edge_spec`, see generic_single_edge_task.py); "plan" is the eval-time ratchet
+        over however many steps a resolved plan has (`_active_plan`, see generic_eval_task.py).
+        Both dispatch predicates by name via robolab.core.task.conditionals instead of
+        hardcoding object_on_top.
     """
 
     _subtasks_cfg = (
@@ -72,10 +69,8 @@ class NoAutoResetManagerBasedRLEnv:
         )
 
     def _init_plan_ratchet(self):
-        """Generalized counterpart to _init_ratchet() above, for mode == "plan": an
-        N-step ratchet over `_active_plan` instead of a hardcoded 2-step one. See the
-        "plan" branch of step() below for how `_needs_fresh_placement` generalizes
-        `_obj2_needs_fresh_placement`'s out-of-order-completion gate to N steps.
+        """Counterpart to _init_ratchet() for mode == "plan": an N-step ratchet over
+        `_active_plan` instead of a hardcoded 2-step one.
         """
         self._plan_idx = torch.zeros(
             self.num_envs, dtype=torch.long, device=self.device
@@ -162,7 +157,7 @@ class NoAutoResetManagerBasedRLEnv:
 
         # Generic single-edge dispatch (mode == "single_edge"): the predicate/args
         # aren't known ahead of time -- looked up by name from conditionals.py instead
-        # of the hardcoded object_on_top call above, per PLAN.md section 5.1.
+        # of the hardcoded object_on_top call above.
         edge_success_now = None
         if self._edge_spec:
             from robolab.core.task import conditionals
@@ -173,15 +168,11 @@ class NoAutoResetManagerBasedRLEnv:
             )
             extras["subtask_1_success"] = edge_success_now
 
-        # End-state collection -- fires whenever the "first" subtask's condition
-        # succeeds (either _subtasks_cfg's hardcoded subtask_1, or the single edge
-        # being trained under mode == "single_edge"). Used on the dedicated
-        # checkpoint-collection eval run, not during normal training. capture_names
-        # comes from the subtasks_cfg template (object_1/object_2/surface) when
-        # present; for a generic single edge it falls back to this scene's fixed
-        # object set (this design is one tree per scene, not per edge -- see
-        # PLAN.md section 0.1 -- so a fixed capture list is correct here, not a
-        # simplification specific to this edge).
+        # End-state collection fires when the "first" subtask's condition succeeds (hardcoded
+        # subtask_1, or the single edge under mode == "single_edge"). Used on the dedicated
+        # checkpoint-collection eval run, not during normal training. capture_names falls back
+        # to this scene's fixed object set for a generic edge, since the tree design is one per
+        # scene, not per edge.
         save_trigger_now = obj1_now if obj1_now is not None else edge_success_now
         if self._save_end_state_path and save_trigger_now is not None and save_trigger_now.any():
             import json
@@ -273,31 +264,21 @@ class NoAutoResetManagerBasedRLEnv:
                 extras["current_subtask_idx"] = self._subtask_idx.clone()
                 extras["task_descriptions"] = list(self._task_descriptions)
         elif self._edge_spec and self._mode == "single_edge":
-            # Generic counterpart to the "subtask_1"/"subtask_2" branches above: one
-            # edge, one predicate, no ratchet needed (training on a single edge is
-            # never a multi-step sequence -- see generic_single_edge_task.py).
+            # One edge, one predicate, no ratchet needed -- training a single edge is never a
+            # multi-step sequence.
             terminated = terminated | edge_success_now
             extras["task_descriptions"] = [
                 self._edge_spec["instruction"]
             ] * self.num_envs
         elif self._active_plan and self._mode == "plan":
-            # Generic counterpart to the "full" branch above: an N-step ratchet over
-            # `_active_plan` (see generic_eval_task.py) instead of a hardcoded 2-step
-            # one, dispatching each step's predicate by name (PLAN.md section 5.1).
-            #
-            # Generalizes the irreversible, out-of-order-completion-proof ratchet
-            # fix above (the `_obj2_needs_fresh_placement` gate) from exactly one
-            # handoff (subtask_1 -> subtask_2) to N-1 handoffs. The same reasoning
-            # applies at every transition, not just the first: a step's completion,
-            # once its predicate goes true, is only credited if it was NOT already
-            # true at the moment its instruction became the active one (i.e. it was
-            # satisfied out of order, before this step was even reached) -- it must
-            # be freshly (re-)satisfied while actually active. Since only one step
-            # is ever active per env at a time, a single per-env gate
-            # (`_needs_fresh_placement`) suffices, snapshotted at each handoff and
-            # cleared the first time the new active step's predicate is observed
-            # false while active -- exactly generalizing the original two-step logic
-            # (on_1/advance/on_2/complete above) to a loop over every step index.
+            # N-step ratchet over `_active_plan`, dispatching each step's predicate by name.
+            # Generalizes the subtask_1->subtask_2 out-of-order-completion gate
+            # (`_obj2_needs_fresh_placement` above) to N-1 handoffs: a step's completion is only
+            # credited if its predicate was NOT already true when it became active (i.e. wasn't
+            # satisfied out of order before being reached) -- it must be freshly (re-)satisfied
+            # while active. One per-env gate (`_needs_fresh_placement`) suffices since only one
+            # step is active per env at a time; snapshotted at each handoff, cleared the first
+            # time the active step's predicate reads false.
             if not hasattr(self, "_plan_idx"):
                 self._init_plan_ratchet()
 
@@ -305,23 +286,16 @@ class NoAutoResetManagerBasedRLEnv:
 
             plan = self._active_plan
             n = len(plan)
-            # Evaluate every step's predicate for the whole batch, unconditionally,
-            # exactly as obj1_now/obj2_now are computed unconditionally above --
-            # cheap (n is small, bounded by the tree's max depth) and keeps the
-            # gate-snapshot value below consistent with what "now" means for the
-            # rest of this same step() call.
             preds_now = [
                 getattr(conditionals, spec["predicate"])(
                     self, env_id=None, **spec["predicate_args"]
                 )
                 for spec in plan
             ]
-            # Backward-compatible metric keys for the common (and currently only
-            # exercised) 2-step case -- lets RoboLabDroidEnv._record_metrics's
-            # existing subtask_1_success_once / subtask_2_success_once aggregation
-            # keep working unchanged for a 2-step plan. N > 2 plans don't yet get
-            # per-step metrics beyond current_subtask_idx (final_subtask_idx) below;
-            # that would need _record_metrics itself extended, out of scope here.
+            # Backward-compatible metric keys for the 2-step case, so
+            # RoboLabDroidEnv._record_metrics's subtask_1/2_success_once aggregation keeps
+            # working unchanged. N > 2 plans don't get per-step metrics beyond
+            # current_subtask_idx below.
             if n >= 1:
                 extras["subtask_1_success"] = preds_now[0]
             if n >= 2:
@@ -333,9 +307,7 @@ class NoAutoResetManagerBasedRLEnv:
                     continue
                 pred_i_now = preds_now[i]
                 if i == 0:
-                    # The very first step was never handed off into -- there's no
-                    # prior instruction it could have been satisfied out of order
-                    # with respect to, so it's never gated.
+                    # The first step was never handed off into, so it's never gated.
                     gated = torch.zeros_like(pred_i_now)
                 else:
                     self._needs_fresh_placement = torch.where(
@@ -418,10 +390,8 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                     resolve_task_path,
                 )
 
-                # Must resolve via the same (task_file, TASK_DIR) pair that
-                # auto_register_droid_envs's internal EnvFactory uses (it defaults to
-                # TASK_DIR too), so load_task_from_file's abspath-keyed module cache
-                # hits the same module object auto_register_droid_envs will use below.
+                # Must resolve via the same (task_file, TASK_DIR) pair auto_register_droid_envs
+                # uses, so load_task_from_file's module cache hits the same module object.
                 resolved_path, _ = resolve_task_path(task_file, TASK_DIR)
                 task_class = load_task_from_file(resolved_path)
                 sys.modules[task_class.__module__].RESET_STATES_PATH = reset_states_path
@@ -446,25 +416,11 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                     ),
                 }
 
-            # Generic single-edge (training) / plan (eval) plumbing, opt-in via
-            # init_params, parallel to subtasks_cfg above. Unlike reset_states_path,
-            # predicate/predicate_args/instruction never need to reach the task-file
-            # module itself (see generic_single_edge_task.py's RESET_STATES_PATH
-            # docstring) -- they're only consumed by this mixin, which already has
-            # direct access to self.cfg.init_params, so no sys.modules injection is
-            # needed on this side. Two equivalent ways in, for whichever is more
-            # convenient upstream (the orchestrator's generate_training_config /
-            # resolve_plan): an inline (possibly nested) Hydra field
-            # (init_params.edge_spec / init_params.plan -- OmegaConf.to_container
-            # fully resolves nested predicate_args dicts into plain dicts so
-            # **spec["predicate_args"] unpacking in step() works regardless of a
-            # predicate's own arg shapes), or a path to a small JSON file
-            # (init_params.edge_spec_path / init_params.plan_path -- same shape,
-            # mirroring reset_states_path's path-to-data-file convention for
-            # whichever side finds it easier to produce, e.g. writing a VLM-derived
-            # predicate_args dict via json.dump instead of assembling Hydra
-            # overrides for an arbitrarily-shaped nested dict). If both are given
-            # for the same field, the *_path file wins.
+            # Generic single-edge (training) / plan (eval) plumbing, opt-in via init_params.
+            # Two equivalent ways in: an inline Hydra field (init_params.edge_spec/plan --
+            # OmegaConf.to_container resolves nested predicate_args into plain dicts) or a path
+            # to a JSON file (init_params.edge_spec_path/plan_path). The *_path file wins if
+            # both are given.
             edge_spec_path = getattr(self.cfg.init_params, "edge_spec_path", None)
             if edge_spec_path:
                 import json as _json

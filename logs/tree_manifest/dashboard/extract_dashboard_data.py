@@ -11,12 +11,9 @@ Sources combined:
     <node>_children.json    -- discovered-but-not-yet-trained candidate edges, if present
   - each trained edge's own training + collection logs -- before/after success-rate numbers
 
-"Before finetuning" = the FIRST rollout epoch's subtask_1_success_once seen in that edge's own
-training log (the warm-started checkpoint's success on the new predicate, prior to any gradient
-steps on it). "After finetuning" = the collection-eval pass's eval/subtask_1_success_once (a
-clean held-out eval on the final checkpoint) if that log exists yet, else the LAST rollout
-epoch's training-time success_once as a fallback (still real signal, just from training
-rollouts rather than a dedicated eval pass).
+"Before finetuning" = the first rollout epoch's subtask_1_success_once in that edge's own
+training log. "After finetuning" = the collection-eval pass's eval/subtask_1_success_once if
+that log exists, else the last training rollout epoch's success_once as a fallback.
 """
 from __future__ import annotations
 
@@ -34,19 +31,16 @@ OUT_PATH = MANIFEST_DIR / "dashboard" / "dashboard_data.json"
 BOX_SUCCESS_RE = re.compile(r"subtask_1_success_once=([0-9.]+)")
 WANDB_EVAL_SUCCESS_RE = re.compile(r"eval/subtask_1_success_once[':\s]+([0-9.]+)")
 
-# Phase B (resolve_plan) composed-instruction eval results. These runs disable wandb
-# (runner.logger.logger_backends=[]) -- see CLAUDE.md's wandb-service-startup-timeout note --
-# so metrics are printed as a raw Python dict repr via logging instead of wandb's own console
+# Phase B (resolve_plan) composed-instruction eval results. These runs disable wandb, so
+# metrics are printed as a raw Python dict repr via logging instead of wandb's console
 # formatter, e.g.:
 #   [INFO 02:41:03 RLinf] {'eval/subtask_2_success_once': array(0.4675, dtype=float32), ...,
 #                          'eval/num_trajectories': 800}
-# Values are either `array(<float>, dtype=float32)` or a bare int (num_trajectories) -- this
-# regex handles both, keyed generically by whatever `eval/<key>` names appear on the line.
+# Values are either `array(<float>, dtype=float32)` or a bare int -- this regex handles both.
 COMPOSED_EVAL_LINE_RE = re.compile(r"\[INFO [\d:]+ RLinf\]\s*\{.*'eval/success_once'.*\}")
 COMPOSED_EVAL_KV_RE = re.compile(r"'eval/(\w+)':\s*(?:array\(([\-0-9.eE]+)|([0-9]+))")
 
-# (slug, instruction, plan-json-relative-name) -- the two Phase B composed language
-# instructions verified against manifest.json and eval'd in this session (see CLAUDE.md).
+# (slug, instruction) for the two Phase B composed language instructions evaluated.
 COMPOSED_EVAL_TASKS = [
     (
         "mug_then_coke",
@@ -79,9 +73,7 @@ def find_composed_eval_log(slug: str, *, baseline: bool) -> Path | None:
     suffix = "-baseline" if baseline else ""
     pattern = f"*-generic_eval_grpo_openpi_pi05-{slug}{suffix}"
     candidates = sorted(LOGS_ROOT.glob(pattern), key=lambda p: p.name)
-    # Exclude finetuned matches from a baseline-suffixed glob's false positives and vice versa --
-    # glob("*-slug") would also match "*-slug-baseline" since '*' is greedy-prefix only here, so
-    # explicitly filter rather than relying on the pattern alone.
+    # glob("*-slug") also matches "*-slug-baseline" -- filter explicitly.
     if not baseline:
         candidates = [c for c in candidates if not c.name.endswith("-baseline")]
     for log_dir in reversed(candidates):  # most recent first
@@ -104,14 +96,10 @@ def build_composed_evals() -> list[dict]:
         if plan_path.is_file():
             try:
                 plan = json.loads(plan_path.read_text())
-                # Match each plan step back to the manifest edge that produced it by WALKING
-                # the tree (precondition == completed-so-far, exact match) rather than a flat
-                # content search -- a parent/child pair can share an identical
-                # (predicate, predicate_args) signature (e.g. root "place_coke_on_cutting_board"
-                # vs its sibling-tree child "..._given_place_mug_on_cutting_board" both being
-                # object_on_top(coke, cutting_board_a)), differing only in precondition, so a
-                # flat search picks the wrong one. See resolve_plan()'s own edges_from() walk in
-                # phase_b.py for the equivalent logic this mirrors.
+                # Match each plan step back to the manifest edge that produced it by walking the
+                # tree (precondition == completed-so-far, exact match), not a flat content
+                # search -- a parent/child pair can share an identical (predicate,
+                # predicate_args) signature, differing only in precondition.
                 resolved_sequence = []
                 completed = frozenset()
                 for step in plan:
@@ -207,12 +195,8 @@ def main() -> None:
         )
 
     # Content-based signature (precondition + predicate + predicate_args), not id: a level-queue
-    # file can legitimately contain a RENAMED duplicate of an already-trained edge -- discovery
-    # re-proposes the same real-world edge (e.g. re-seeding root_candidates.json on every driver
-    # relaunch), _dedupe_id renames it because its raw id collides with the already-trained
-    # edge's id in seen_ids, and the level-queue file gets written (at discovery time, before the
-    # "already trained, don't retrain" check that happens later in the training loop) with that
-    # renamed id still attached. Same edge, different id -- must not show twice.
+    # file can contain a renamed duplicate of an already-trained edge (re-discovery + _dedupe_id
+    # renaming a raw id collision) -- same edge, different id, must not show twice.
     trained_signatures = {edge_signature(e) for e in trained_edges.values()}
 
     nodes = []
@@ -241,18 +225,11 @@ def main() -> None:
         })
 
     # Discovered-but-not-yet-trained candidates. Priority order, highest first:
-    #   1. level_<depth>_queue.json -- the AUTHORITATIVE source once it exists: written by
-    #      discover_and_train_by_level itself, right after a whole level's edges are discovered
-    #      AND deduped (via _dedupe_id/seen_ids), before any of them start training. Ids here are
-    #      already final/renamed (e.g. "place_coke_on_cutting_board__given_place_mug_on_cutting_board"),
-    #      so no separate id-collision handling is needed on this side.
-    #   2. root_candidates.json / *_children.json -- older, pre-level-queue preview files, kept
-    #      as a fallback ONLY for whatever a level-queue file doesn't cover yet (e.g. very early
-    #      in a run before discover_and_train_by_level's first level-queue write lands). These
-    #      can carry STALE, non-deduped ids that collide with an already-trained edge's id
-    #      (e.g. "coke given mug" naively sharing an id with the already-trained root "coke" edge)
-    #      -- root_candidates.json is scanned before *_children.json for the same reason as
-    #      before (represents the more-current frontier), but level-queue files always win first.
+    #   1. level_<depth>_queue.json -- authoritative once it exists: written after a whole
+    #      level's edges are discovered and deduped, before any start training. Ids here are
+    #      already final.
+    #   2. root_candidates.json / *_children.json -- older preview files, fallback only for
+    #      whatever a level-queue file doesn't cover yet. Can carry stale, non-deduped ids.
     pending_ids_seen = set()
     candidate_files = sorted(MANIFEST_DIR.glob("level_*_queue.json"))
     root_candidates_path = MANIFEST_DIR / "root_candidates.json"
@@ -266,11 +243,9 @@ def main() -> None:
                 continue
             is_current = bool(status and status.get("current_edge") == cand["id"])
             if not is_current and edge_signature(cand) in trained_signatures:
-                # Same real edge as one already trained, just a renamed duplicate from a
-                # re-discovery pass (see edge_signature's docstring above) -- skip silently,
-                # never shown as a separate node. Still guard `is_current`: the active edge must
-                # always render even in the (currently impossible, but not worth relying on)
-                # case its signature happened to coincide with an unrelated trained edge.
+                # Same real edge as one already trained, a renamed duplicate from re-discovery
+                # -- skip silently. `is_current` guard: the active edge must still render even
+                # if its signature happened to coincide with an unrelated trained edge.
                 pending_ids_seen.add(cand["id"])
                 continue
             pending_ids_seen.add(cand["id"])
@@ -280,10 +255,8 @@ def main() -> None:
                 cand_status = "training_in_progress"
             else:
                 cand_status = "queued"
-            # Training itself may have already produced a real checkpoint before a LATER stage
-            # (e.g. end-state collection) failed -- surface it if present, so a failed node
-            # doesn't look like nothing happened (real GPU-hours were actually spent and
-            # succeeded up to that point).
+            # Surface a checkpoint that training produced before a later stage (e.g. end-state
+            # collection) failed, so a failed node doesn't look like nothing happened.
             checkpoint = status.get("checkpoint") if (is_current and status.get("phase") == "FAILED") else None
             nodes.append({
                 "id": cand["id"],
@@ -302,14 +275,9 @@ def main() -> None:
                 "success_after": None,
             })
 
-    # Fallback for the currently-active edge when no discovered-candidate preview file (root_
-    # candidates.json / *_children.json) ever mentioned it -- happens whenever
-    # discover_and_train_by_level seeds/renames an edge internally (e.g. after a dedup rename,
-    # or a resumed/relaunched run) without writing a separate preview file for it. The one
-    # source that's ALWAYS authoritative once a stage has actually started is its own edge spec
-    # under edge_specs/<id>.json (written by generate_training_config before every real launch)
-    # -- read that directly rather than showing a generic "not yet discovered" placeholder for
-    # a task that's actually running right now.
+    # Fallback for the currently-active edge when no preview file ever mentioned it. Its own
+    # edge spec under edge_specs/<id>.json (written before every real launch) is always
+    # authoritative once a stage has started.
     current_edge_id = status.get("current_edge") if status else None
     if current_edge_id and current_edge_id not in trained_edges and current_edge_id not in pending_ids_seen:
         spec_path = MANIFEST_DIR / "edge_specs" / f"{current_edge_id}.json"

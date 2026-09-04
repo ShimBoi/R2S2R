@@ -6,29 +6,14 @@ defaults:
   - weight_syncer/patch_syncer@weight_syncer
   - override hydra/job_logging: stdout
 
-# Real (production-scale) config for training ONE edge of a VLM-discovered subtask tree
-# (PLAN.md section 8.0) via generic_single_edge_task.py -- the reusable replacement for a
-# hand-written per-edge task file (mug_on_cutting_board_task.py /
-# subtask_2_coke_on_cuttingboard_task.py were the last hand-written ones; this generic
-# file plus this config now stand in for all future edges, whatever the discovered tree).
+# Production-scale config for training ONE edge of a VLM-discovered subtask tree via
+# generic_single_edge_task.py -- the reusable replacement for a hand-written per-edge task
+# file. total_num_envs must stay a multiple of group_size * num_ranks, and
+# total_num_envs * rollout_epoch must equal global_batch_size.
 #
-# Batch-shape math (total_num_envs/group_size/rollout_epoch/global_batch_size = 64/8/2/128)
-# and the generic-task-file mechanism itself were proven end-to-end by
-# tree_ext_smoketest_train.yaml/tree_ext_smoketest_A first (kept as a regression-test
-# artifact, not deleted) -- that smoke test is what caught a real crash
-# (RuntimeError: shape '[-1, 8]' invalid for input of size 1) that a naive total_num_envs=1
-# smoke-scale config would have hidden. This config restores real scale on top of that
-# proven math: max_epochs 60 (vs the smoke test's 2), save_interval 20 (vs 1),
-# update_epoch 3 (vs 1), logger_backends ["wandb"] (vs [] -- no wandb sync needed for a
-# smoke test), eval total_num_envs 80 / eval_rollout_epoch 10 (vs 8 / 1), save_video True
-# for eval (vs False) -- exactly mirroring mug_coke_subtask_1_grpo_openpi_pi05.yaml's real
-# settings, the proven real-scale reference config for this same batch-math family.
-#
-# generate_training_config() (rlinf/envs/isaaclab/tasks/discovery/orchestrator.py)
-# overrides env.train.init_params.edge_spec_path/reset_states_path (and mirrors the same
-# onto env.eval.init_params.*, since eval_embodiment.sh runs against env.eval, not
-# env.train -- see that function's docstring) per real discovered edge; nothing about this
-# top-level config needs to change per edge.
+# generate_training_config() (rlinf/envs/isaaclab/tasks/discovery/orchestrator.py) overrides
+# env.{train,eval}.init_params.edge_spec_path/reset_states_path per real discovered edge;
+# nothing about this top-level config needs to change per edge.
 
 hydra:
   run:

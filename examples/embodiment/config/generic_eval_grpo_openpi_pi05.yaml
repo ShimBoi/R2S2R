@@ -6,14 +6,12 @@ defaults:
   - weight_syncer/patch_syncer@weight_syncer
   - override hydra/job_logging: stdout
 
-# Eval config for the VLM-discovered subtask tree (PLAN.md section 5.1): evaluates the
-# single continually-trained policy against a language instruction resolved ONCE, up
-# front, into an ordered plan by resolve_plan() (env.eval.init_params.plan_path). Mirrors
-# mug_coke_eval.yaml's shape/scale exactly (same eval_rollout_epoch/total_num_envs -> 800
-# trajectories, same batch/model settings) but points at generic_eval_task.py's N-step
-# ratchet instead of the hardcoded two-subtask task file, and expects
-# +actor.model.lora_path=<final tree checkpoint> on the CLI rather than a fixed
-# runner.ckpt_path, matching how every other tree-extension stage loads its checkpoint.
+# Eval config for the VLM-discovered subtask tree: evaluates the single continually-trained
+# policy against a language instruction resolved once, up front, into an ordered plan by
+# resolve_plan() (env.eval.init_params.plan_path). Mirrors mug_coke_eval.yaml's scale
+# (eval_rollout_epoch/total_num_envs -> 800 trajectories) but points at
+# generic_eval_task.py's N-step ratchet, and expects +actor.model.lora_path=<final tree
+# checkpoint> on the CLI rather than a fixed runner.ckpt_path.
 
 hydra:
   run:

@@ -14,85 +14,31 @@
 
 """The orchestrator: ``discover_tree()`` / ``discover_and_train()`` + ``train_sequence()``.
 
-Two things this module deliberately does NOT do here (both by task scope, not by omission):
-  - Nothing in this file invokes real multi-hour training. The real ``launch_and_wait``
-    subprocess-launching implementation is written for correctness (see its docstring for how
-    it applies the Stage 2 session-detachment crash lesson from CLAUDE.md) but is only exercised
-    in tests against trivial, instantaneous shell commands, never real GPU jobs.
-  - ``generate_training_config``'s exact CLI-override shape was a best-guess against PLAN.md
-    section 8.0's description when first written; since then, reading Agent A's landed
-    ``robolab_task.py`` confirmed the guess was correct (``env.train.init_params.edge_spec_path``
-    is exactly the key Agent A's code reads) -- still worth a final integration-pass check, but
-    no longer purely speculative.
+``launch_and_wait`` never runs real multi-hour training here; it's exercised in tests only
+against trivial, instantaneous shell commands.
 
-ARCHITECTURE DEVIATION FROM PLAN.md section 4 (read this before touching ``discover_tree``):
-a real ``discover_tree()`` run against the mug/coke scene surfaced two problems, one prompt-side
-(fixed in ``phase_a.py`` -- see its module docstring) and one structural: PLAN.md section 4's
-sketch discovers the *entire* tree upfront, before any training happens, then trains everything
-in a second pass (``train_sequence``). That means every node below the root gets proposed with
-NO real information about what the scene actually looks like once its ancestors' subtasks are
-actually satisfied -- there's no real data to ground it in, because nothing has run yet. That
-directly undermines the user's bar of "achievable given the current layout/state" for anything
-below the root.
+Two tree-walk strategies, both kept:
+  - ``discover_tree()`` -- pure preview/dry-run, no training. Nodes below the root only get real
+    starting-state grounding if a prior training pass already populated
+    ``manifest.get_reset_states_path_for_children(node)`` for them; otherwise discovery proceeds
+    without state data for that node.
+  - ``discover_and_train()`` / ``discover_and_train_by_level()`` -- the production entrypoints:
+    discover one node's candidates, train each, collect end-states, only then discover its
+    children (now grounded in real data the training just produced). Costs GPU time between every
+    discovery step instead of discovering the whole tree upfront, in exchange for every node
+    being grounded in what the trained policy actually produces rather than a guess.
+  - ``discover_and_train_by_level()`` is breadth-first and is the recommended entrypoint for
+    walking a whole tree unattended: it trains every edge at the current depth before discovering
+    the next depth, so a root with multiple children gets ALL of them trained into the one
+    checkpoint, not just the first one recursed into. ``discover_and_train()`` (DFS) fully
+    recurses into each candidate before trying its next sibling, so from a non-root starting node
+    it only ever walks one lineage -- kept for callers who genuinely want depth-first.
 
-Two ways to reconcile this, both implemented here (deliberately, not just one silently chosen):
-
-  - ``discover_tree()`` -- kept, mostly unchanged in spirit: a pure, no-training preview/dry-run
-    walk of the whole tree. Still useful (and is what this task's real, cost-conscious API-call
-    verification below uses -- one Phase-A-quality check, no GPU spend) precisely because it
-    doesn't train anything. Grounding: the root call gets real data (see ``starting_states.py``);
-    every node below the root gets real data too IF a prior training pass already populated
-    ``manifest.get_reset_states_path_for_children(node)`` for it (e.g. a resumed/partial run),
-    and an explicit "no real data yet, reason conservatively" note otherwise -- it never
-    fabricates state data for a node nothing has actually run for.
-  - ``discover_and_train()`` -- NEW, the recommended production entrypoint for growing a tree
-    from scratch. Implements the interleaved loop the coordinator's option (a) describes:
-    discover one node's candidate edges -> actually train each one -> actually collect its
-    end-states -> only THEN discover that child's candidates (now with real grounding, because
-    the manifest genuinely has real data for it by that point) -> recurse. This is the real,
-    structural fix -- not a prompt-only patch -- because it's the only way for a node below the
-    root to ever get real "achievable given current state" grounding at proposal time, which the
-    user's bar requires, not just prefers.
-
-**Chosen for production: discover_and_train() (option (a)).** Reasoning: the user's bar
-explicitly includes "achievable given the current layout/state" for every proposal, not just the
-root's; ``discover_tree()``'s upfront-preview shape can only ever satisfy that at the root by
-construction, permanently, regardless of any further prompt tuning -- grounding is a data
-availability problem there, not a wording problem. ``discover_and_train()`` costs real GPU hours
-between every discovery step instead of amortizing discovery into one cheap upfront pass, which
-is a real, accepted tradeoff (also raised, and accepted, by the coordinator) in exchange for
-every node actually being grounded in what the trained policy really produces, not a guess.
-``discover_tree()`` is kept (not deleted) specifically because a training-free preview is still
-useful on its own terms (this task's real-API verification run needs exactly that), and because
-the two entrypoints share their per-node discovery logic (``_discover_node_edges``) and grounding
-mechanism (``starting_states.summarize_starting_state``) rather than duplicating it -- so fixing
-the prompt or the grounding logic fixes both call paths at once.
-
-JUDGMENT CALL -- ``stable_base_objects`` (physical-plausibility structural filter, round 2 of the
-coordinator's Phase A tuning): a real run still proposed physically-dubious bases for
-``object_on_top``/``stacked`` (a board balanced on a mug's rim, something balanced on a standing
-coke can). ``predicates.validate_phase_a`` grew a ``stable_base_objects`` parameter that hard-
-rejects any such candidate whose base/reference object isn't in that set -- but it's **opt-in**
-(``None``/disabled unless a caller passes it), NOT wired as an unconditional default in
-``discover_tree``/``discover_and_train`` below. Reasoning:
-  - There's no geometry/dimension data in this pipeline to derive "what's a stable base" from
-    first principles -- any such set is hand-curated, scene-specific knowledge (```{"cutting_board_a"}```
-    for this exact scene), the same kind of fact table as the root-pose alias map in
-    ``starting_states.py``. Baking a hardcoded default into a general-purpose validator would
-    silently mis-validate a *different* scene with different objects (e.g. a tray or a plate that
-    legitimately IS a good secondary base) unless every future caller remembers to override it.
-  - A tempting alternative -- "a base is valid if it's already resting on cutting_board_a" (a
-    topology check derivable from the tree structure, not hand-curated) -- was considered and
-    rejected: it's actively wrong here. It would still allow "mug on top of coke" once coke is on
-    the board, which is exactly one of the two bad real examples. Physical stability is a
-    property of the object itself (its shape), not of where it currently sits, so no purely
-    structural/topological rule over the manifest can substitute for at least some hand-specified
-    per-object knowledge.
-  - Given that, the honest thing to do is expose the mechanism, make it easy to opt into for a
-    specific scene, and default it OFF so ``validate_phase_a`` doesn't quietly assume every caller
-    is running this exact 3-object scene. The real-API verification run below DOES opt in
-    (``stable_base_objects={"cutting_board_a"}``) since that's the correct, known-good set for
-    this scene today.
+``stable_base_objects`` (in ``discover_tree``/``discover_and_train*`` below): opt-in
+physical-plausibility filter passed through to ``predicates.validate_phase_a``, disabled
+(``None``) by default. It's hand-curated, scene-specific knowledge (e.g. ``{"cutting_board_a"}``
+for the mug/coke scene) with no way to derive it from first principles in this pipeline, so it's
+never defaulted on -- a hardcoded default would silently mis-validate a different scene's objects.
 """
 
 from __future__ import annotations
@@ -116,15 +62,11 @@ from .starting_states import summarize_starting_state
 # deterministic id deduplication (across the WHOLE discovery run, not per-node)
 # ---------------------------------------------------------------------------
 #
-# Across every real discover_tree() run so far, the VLM has independently generated the same
-# id (e.g. "place_coke_on_cutting_board") at multiple different nodes (different preconditions)
-# in the same tree -- harmless in preview mode, but Manifest.add_edge correctly raises
-# ManifestError on a duplicate id, which would crash a real train_sequence/discover_and_train
-# run partway through, potentially after real GPU hours already spent on an earlier edge in
-# that same run. Fixed deterministically here -- not by hoping the VLM does better -- by
-# tracking every id seen anywhere else in the run (not just locally within one node's candidate
-# list) and renaming a colliding one before it's used anywhere downstream (manifest lookups,
-# generate_training_config's edge_spec file, checkpoint/log directory names, ...).
+# The VLM can independently propose the same id (e.g. "place_coke_on_cutting_board") at
+# different nodes in the same tree. Manifest.add_edge raises on a duplicate id, which would
+# crash a run partway through after GPU hours were already spent. Renamed deterministically here
+# by tracking every id seen anywhere in the run and renaming a collision before it's used
+# downstream (manifest lookups, edge_spec files, checkpoint/log directory names).
 
 _MAX_PRECONDITION_SUFFIX_LEN = 60
 
@@ -142,15 +84,10 @@ def _precondition_suffix(precondition: Iterable[str]) -> str:
 
 
 def _dedupe_id(candidate_id: str, seen_ids: set[str], precondition: Iterable[str]) -> str:
-    """Return a version of ``candidate_id`` guaranteed not to collide with anything in
-    ``seen_ids``, renaming deterministically (not randomly) if it does.
+    """Return a version of ``candidate_id`` guaranteed not to collide with ``seen_ids``.
 
-    First choice: qualify with the node's precondition (readable, and the natural
-    disambiguator -- the same id proposed from two different nodes almost always means "the
-    same kind of subtask, from a different starting point", which the precondition-qualified id
-    describes accurately). Falls back to a numeric counter in the vanishingly unlikely case that
-    even the qualified id collides (e.g. two different preconditions whose sorted-join happens
-    to produce the same suffix, or the same id proposed twice from the exact same node).
+    Qualifies with the node's precondition first (readable, and usually the correct
+    disambiguator). Falls back to a numeric counter if even the qualified id collides.
     """
     if candidate_id not in seen_ids:
         return candidate_id
@@ -168,17 +105,11 @@ def _dedupe_id(candidate_id: str, seen_ids: set[str], precondition: Iterable[str
 def _find_matching_existing_edge(
     manifest: Manifest, candidate: dict[str, Any]
 ) -> Optional[dict[str, Any]]:
-    """Is ``candidate`` (already precondition/produces_node-assigned, and possibly already
-    ``_dedupe_id``-renamed) the SAME real-world edge as one already in ``manifest`` -- e.g. a
-    memoryless Phase A call re-proposing "place the mug" at the root even though that exact edge
-    was already trained in a prior run?
+    """Is ``candidate`` the same real-world edge as one already in ``manifest``?
 
-    Deliberately NOT an id match (a renamed candidate's id, by construction, no longer equals
-    the existing edge's id -- that's the whole point of the rename). Matches on exact
-    precondition + predicate + predicate_args instead: same starting node, same success
-    condition, is as strong a "this is the same subtask" signal as this pipeline has without
-    real semantic understanding of instruction text. Returns ``None`` if nothing matches (a
-    genuinely new edge).
+    Matches on precondition + predicate + predicate_args, not id (a `_dedupe_id`-renamed
+    candidate's id no longer equals the existing edge's by construction). Returns ``None`` if
+    nothing matches.
     """
     target_precondition = tuple(sorted(candidate.get("precondition", [])))
     for existing in manifest.edges_from(target_precondition):
@@ -208,19 +139,11 @@ def _discover_node_edges(
     seen_ids: Optional[set[str]] = None,
 ) -> list[dict[str, Any]]:
     """One Phase A call + validation for a single node. Marks ``node`` terminal in ``manifest``
-    if nothing valid comes back; does NOT add edges to the manifest (that's the caller's job,
-    once -- and only if -- it decides to actually keep/train them) and does NOT recurse.
+    if nothing valid comes back. Does not add edges to the manifest or recurse.
 
-    ``stable_base_objects``: opt-in physical-plausibility filter for object_on_top/stacked
-    candidates -- see the module docstring's "JUDGMENT CALL" section for why this isn't a
-    default.
-
-    ``seen_ids``: the shared, whole-run id-collision tracker (see ``_dedupe_id`` above). Callers
-    (``discover_tree``/``discover_and_train``) must thread the SAME set object through every
-    node visited in one run -- passing ``None`` (the default) makes this call self-contained
-    (dedupes only within this one node's own candidate batch), which is enough for a
-    standalone/test call but NOT enough to prevent cross-node collisions in a real multi-node
-    walk; the two public entrypoints below always pass a real shared set.
+    ``seen_ids``: the shared, whole-run id-collision tracker (see ``_dedupe_id``). Callers must
+    thread the SAME set through every node visited in one run; ``None`` dedupes only within this
+    node's own candidate batch.
     """
     node = frozenset(node)
     seen_ids = seen_ids if seen_ids is not None else set()
@@ -248,10 +171,8 @@ def _discover_node_edges(
         manifest.mark_terminal(node)
         return []
 
-    # Reset pool for this node's CHILDREN: whatever this node's own producing edge recorded
-    # after collecting end-states (None at the root, or for any node not yet trained -- falls
-    # back to the scene's default starting-state pool, exactly as the existing two-subtask plan
-    # already does for subtask_1).
+    # Reset pool for this node's children. None at the root or any untrained node -- falls back
+    # to the scene's default starting-state pool.
     reset_states_path = manifest.get_reset_states_path_for_children(node)
 
     edges = []
@@ -271,16 +192,9 @@ def _discover_node_edges(
 # discover_tree -- pure preview/dry-run, no training (see module docstring)
 # ---------------------------------------------------------------------------
 
-# Defaults chosen after the real 52-edge/23-node runaway (see phase_a.py's module docstring):
-# this 2-object scene's true meaningful depth is 2 (one node per object actually placed);
-# DEFAULT_MAX_DEPTH=3 gives one level of headroom for a slightly richer future scene without
-# permitting the old default of 4 (which is what let the explosion run that far before the cap
-# -- not the root cause, which was the prompt, but worth tightening as defense in depth
-# alongside it). DEFAULT_MAX_TOTAL_EDGES=30 is a structural safety valve independent of depth --
-# a verbose model proposing many candidates per node could still blow up edge count within a
-# shallow depth cap; 30 comfortably covers this scene's real 4-edge tree (and quite a bit of
-# future headroom) while still bounding a runaway to a small, cheap, reviewable number rather
-# than the 52 actually observed.
+# DEFAULT_MAX_DEPTH: this 2-object scene's meaningful depth is 2 (one node per object placed);
+# 3 gives one level of headroom. DEFAULT_MAX_TOTAL_EDGES: a depth cap alone doesn't bound edge
+# count if a node proposes many candidates -- 30 is a structural ceiling independent of depth.
 DEFAULT_MAX_DEPTH = 3
 DEFAULT_MAX_TOTAL_EDGES = 30
 
@@ -304,33 +218,24 @@ def discover_tree(
 ) -> list[dict[str, Any]]:
     """Recursively discover edges via Phase A, without training anything yet.
 
-    Returns a topologically-ordered list of edge dicts (parents always before children). Marks
-    each node Phase A returns nothing for as terminal in ``manifest``; does not otherwise write
-    to the manifest (edges are only persisted via ``manifest.add_edge`` once actually trained --
-    by ``train_sequence`` if you're executing a previously-discovered preview list, or by
-    ``discover_and_train`` if you want real per-node grounding -- see module docstring).
+    Returns a topologically-ordered list of edge dicts (parents before children). Marks each
+    node Phase A returns nothing for as terminal; edges are only persisted via
+    ``manifest.add_edge`` once actually trained (by ``train_sequence`` or ``discover_and_train``).
 
-    ``max_total_edges`` is a hard structural cap on top of ``max_depth``: recursion stops the
-    instant the running edge count (shared across the whole recursive walk via ``_edge_budget``,
-    an internal parameter -- do not pass it yourself) reaches the cap, regardless of depth. Set
-    ``None`` to disable (not recommended for an unattended run against a real VLM).
+    ``max_total_edges`` is a hard cap on top of ``max_depth``: recursion stops the instant the
+    running edge count reaches it, regardless of depth. ``None`` disables it.
 
-    ``stable_base_objects``: opt-in physical-plausibility filter, disabled (``None``) by default
-    -- see the module docstring's "JUDGMENT CALL" section. Pass e.g. ``{"cutting_board_a"}`` for
-    the mug/coke scene to reject object_on_top/stacked candidates that use a small/tippy object
-    as the base.
+    ``stable_base_objects``: opt-in physical-plausibility filter, disabled by default. Pass e.g.
+    ``{"cutting_board_a"}`` to reject object_on_top/stacked candidates using a tippy base.
 
-    Every id in the returned list is guaranteed unique across the WHOLE returned list (see
-    ``_dedupe_id`` above) -- seeded from any ids already in ``manifest`` too (defensive, in case
-    this is a resumed/partial walk over a manifest a previous ``discover_and_train`` run already
-    populated some edges into), so the result can always be fed through ``Manifest.add_edge`` for
-    every edge without a ``ManifestError``. ``_edge_budget``/``_seen_ids`` are internal recursion
-    state -- do not pass them yourself.
+    Every returned id is unique across the whole list (seeded from ids already in ``manifest``),
+    so it can always be fed through ``Manifest.add_edge`` without a ``ManifestError``.
+    ``_edge_budget``/``_seen_ids`` are internal recursion state -- do not pass them yourself.
     """
     visited = visited if visited is not None else set()
     _edge_budget = _edge_budget if _edge_budget is not None else [0]
     if _seen_ids is None:
-        _seen_ids = {e["id"] for e in manifest.all_edges()}  # seed from prior real edges, if any
+        _seen_ids = {e["id"] for e in manifest.all_edges()}
     ordered_edges: list[dict[str, Any]] = []
     node = frozenset(node)
     if node in visited or len(node) >= max_depth:
@@ -384,14 +289,12 @@ def discover_tree(
 def render_current_node(
     node: FrozenSet[str], *, env: Any = None
 ) -> Optional[str]:
-    """Best-effort scene screenshot (base64 PNG) -- secondary/legacy fallback.
+    """Best-effort scene screenshot (base64 PNG). STUB, always returns ``None``.
 
-    STUB. Superseded as the primary grounding mechanism by ``starting_states.py``'s real numeric
-    starting-state data (see that module and ``phase_a.py``'s module docstring for why: the user
-    wants real object poses, not an image). Still stubbed at ``None`` -- genuinely wiring this up
-    needs a *live* IsaacLab env reset to the captured end-state for ``node`` (Agent A's
-    ``reset_to_captured_state``/``robolab_task.py`` territory) plus a camera-frame grab, not
-    something this module can stand up on its own without an env instance handed to it.
+    ``starting_states.py``'s numeric starting-state data is the real grounding mechanism instead
+    of an image. Wiring this up for real needs a live IsaacLab env reset to ``node``'s captured
+    end-state plus a camera-frame grab -- not something this module can do without an env
+    instance.
     """
     return None
 
@@ -403,9 +306,8 @@ def render_current_node(
 
 @dataclass
 class TrainingConfigSpec:
-    """A Hydra config name plus CLI overrides, ready to interpolate into
-    ``run_embodiment.sh``/``eval_embodiment.sh`` exactly the way PLAN.md section 4's sketch does:
-    ``f"bash examples/embodiment/run_embodiment.sh {config_path}"``.
+    """A Hydra config name plus CLI overrides, e.g.
+    ``f"bash examples/embodiment/run_embodiment.sh {config_spec}"``.
     """
 
     config_name: str
@@ -422,19 +324,12 @@ def strip_actor_lora_path_override(overrides: Iterable[str]) -> list[str]:
     """Remove any existing ``+actor.model.lora_path=...`` / ``++actor.model.lora_path=...``
     entry from a list of Hydra CLI overrides.
 
-    Real, observed bug (not hypothetical): ``generate_training_config`` bakes
-    ``+actor.model.lora_path=<parent checkpoint>`` into ``TrainingConfigSpec.overrides`` for the
-    TRAINING stage's warm-start. A collection/eval pass against that SAME edge needs to load a
-    DIFFERENT checkpoint -- the edge's own just-trained output, not its parent's -- via its own
-    lora_path override. Reusing ``config_spec.overrides`` verbatim for that eval pass (as both
-    ``_make_default_collect_end_states`` below and ``driver.py``'s ``make_collect_end_states``
-    originally did) means Hydra sees ``+actor.model.lora_path=`` twice with two different
-    values; its ``+`` prefix (add-new-key-only) correctly refuses the second one with
-    ``hydra.errors.ConfigCompositionException: Could not append to config. An item is already
-    at 'actor.model.lora_path'.`` -- confirmed on a real collection run for
-    ``place_coke_on_cutting_board``. Any caller building an eval/collection override list from a
-    training ``TrainingConfigSpec`` must strip the training-time entry first via this function,
-    then add its own eval-appropriate one.
+    ``generate_training_config`` bakes the parent checkpoint's lora_path into
+    ``TrainingConfigSpec.overrides`` for training's warm-start. A collection/eval pass against
+    that same edge needs a different lora_path (the edge's own just-trained checkpoint) --
+    reusing the overrides verbatim would give Hydra two `+actor.model.lora_path=` entries, and
+    its add-only `+` prefix raises `ConfigCompositionException` on the second one. Strip the
+    training-time entry first, then add the eval-appropriate one.
     """
     return [o for o in overrides if not _LORA_PATH_OVERRIDE_RE.match(o)]
 
@@ -449,29 +344,13 @@ def generate_training_config(
 ) -> TrainingConfigSpec:
     """Produce the CLI overrides for training one edge.
 
-    Modeled on ``subtask_2_coke_on_cuttingboard_task.py``'s module-level ``RESET_STATES_PATH``
-    injection mechanism. Confirmed (not just guessed) by reading Agent A's landed
-    ``rlinf/envs/isaaclab/tasks/robolab_task.py`` and ``RoboLab/robolab/tasks/benchmark/
-    generic_single_edge_task.py`` (NOT modified by this task -- read-only): the mixin really does
-    read ``init_params.edge_spec_path`` (a path to a JSON file, exactly this function's shape)
-    and falls back to an inline ``init_params.edge_spec`` dict if no path is given.
-    ``generic_single_edge_grpo_openpi_pi05.yaml``/its ``env/`` counterpart now exist for real
-    (``examples/embodiment/config/``), modeled on the proven ``tree_ext_smoketest_train.yaml``
-    smoke test plus real-scale settings restored from ``mug_coke_subtask_1_grpo_openpi_pi05.yaml``.
+    The env mixin reads ``init_params.edge_spec_path`` (a JSON file, this function's shape),
+    falling back to an inline ``init_params.edge_spec`` dict if no path is given.
 
-    ``env.eval.*`` mirrors ``env.train.*`` (a real bug found and fixed here, not present in the
-    first draft of this function): ``_default_collect_end_states`` below reuses this SAME
-    ``TrainingConfigSpec`` against ``eval_embodiment.sh``, which runs against ``env.eval``, not
-    ``env.train`` (``eval_embodied_agent.py`` forces ``runner.only_eval=True``, and the eval
-    runner is built from ``env.eval``'s config, confirmed by reading that script). Without the
-    ``env.eval.*`` overrides too, the end-state-collection pass would have run against whatever
-    placeholder ``edge_spec``/``reset_states_path`` happens to be baked into the env yaml file,
-    not the actual edge just trained -- meaning end-state collection would silently never trigger
-    (the mixin's success dispatch would be checking the wrong predicate, or none at all). No
-    separate eval-side config file is needed for this -- the same config, with both env.train and
-    env.eval init_params pointed at the real edge, works for both `run_embodiment.sh` and
-    `eval_embodiment.sh` (exactly like ``mug_coke_subtask_1_grpo_openpi_pi05.yaml`` already does
-    for the hardcoded two-subtask pipeline).
+    Overrides both ``env.train.*`` and ``env.eval.*``: ``eval_embodied_agent.py`` builds its
+    runner from ``env.eval``'s config, so ``_default_collect_end_states``'s reuse of this same
+    ``TrainingConfigSpec`` against `eval_embodiment.sh` needs `env.eval.init_params` pointed at
+    the real edge too, or end-state collection silently checks the wrong predicate.
     """
     spec_dir = Path(spec_dir)
     spec_dir.mkdir(parents=True, exist_ok=True)
@@ -511,25 +390,10 @@ def launch_and_wait(
     poll_interval_s: float = 30.0,
     timeout_s: Optional[float] = None,
 ) -> LaunchResult:
-    """Launch a long-running shell command fully session-detached, then poll (not block-wait
-    inside a caller that might itself get torn down) until it exits.
+    """Launch a shell command fully session-detached, then poll for its exit code.
 
-    Applies the Stage 2 crash lesson from CLAUDE.md directly, structurally rather than
-    procedurally: that failure was traced to a backgrounded-but-not-detached training process
-    dying the instant its parent shell session got torn down (by an agent-resume
-    ``SendMessage``). The fix here doesn't rely on the *caller* remembering to be careful --
-    ``setsid`` gives the child its own session (nothing above it to lose), stdio is fully
-    redirected to ``log_path`` (never inherited from whatever's launching this), and the
-    launcher process detaches immediately after recording the child's PID rather than blocking
-    on it -- so a caller (e.g. an agent session) that itself gets rebuilt mid-flight doesn't take
-    the training job down with it. Progress/completion is discovered by *polling* an exit-code
-    file, mirroring "the coordinator should avoid nudging a subagent with a real background job
-    in flight -- let it poll autonomously instead" from the same lesson.
-
-    Not invoked against real training by anything in this package's tests (multi-hour GPU jobs
-    are explicitly out of scope for this task) -- but IS exercised in a unit test against a
-    trivial, instantaneous shell command, to verify the detachment/polling/exit-code plumbing
-    itself actually works.
+    ``setsid`` gives the child its own session and stdio is redirected to ``log_path``, so a
+    caller that itself gets torn down mid-flight doesn't kill the training job with it.
     """
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -542,10 +406,8 @@ def launch_and_wait(
         f"echo $? > {shlex.quote(str(exitcode_path))}' "
         f"< /dev/null > /dev/null 2>&1 & echo $! > {shlex.quote(str(pid_path))}"
     )
-    # This `subprocess.run` only launches-and-backgrounds (the trailing `&` inside `wrapped`
-    # returns control to bash almost immediately); it does not itself block for the command's
-    # full duration, and closing its own stdio pipes here doesn't propagate to the
-    # already-`setsid`-detached grandchild.
+    # The trailing `&` returns control almost immediately; this doesn't block for the command's
+    # full duration.
     subprocess.run(wrapped, shell=True, check=True)
 
     start = time.monotonic()
@@ -564,9 +426,8 @@ def launch_and_wait(
 
 
 def _checkpoint_path(log_dir: str | Path, experiment_name: str, global_step: int) -> str:
-    """Mirrors the documented checkpoint save-path convention (CLAUDE.md, confirmed against
-    ``rlinf/runners/embodied_runner.py``'s ``_save_checkpoint``):
-    ``<log_path>/<experiment_name>/checkpoints/global_step_<N>/actor``.
+    """``<log_path>/<experiment_name>/checkpoints/global_step_<N>/actor`` -- the save-path
+    convention from ``rlinf/runners/embodied_runner.py``'s ``_save_checkpoint``.
     """
     return str(Path(log_dir) / experiment_name / "checkpoints" / f"global_step_{global_step}" / "actor")
 
@@ -591,17 +452,10 @@ def _make_default_collect_end_states(
     def _default_collect_end_states(edge, checkpoint, config_spec: TrainingConfigSpec) -> str:
         log_dir = logs_root / f"{config_spec.config_name}-{edge['id']}"
         end_states_path = log_dir / f"{edge['id']}_end_states.jsonl"
-        # Two real bugs fixed here (both confirmed on live runs, not hypothetical):
-        #   1. config_spec.overrides may already contain a training-time
-        #      `+actor.model.lora_path=<parent checkpoint>` (from generate_training_config's
-        #      warm-start) -- must be stripped before adding this stage's OWN lora_path
-        #      (the edge's just-trained checkpoint), or Hydra's `+` (add-only) prefix raises
-        #      ConfigCompositionException on the second, colliding `actor.model.lora_path` key.
-        #   2. `runner.ckpt_path=<checkpoint>` crashes (IsADirectoryError) for a LoRA adapter
-        #      directory -- `torch.load()` expects a single .pt file. The confirmed-correct
-        #      mechanism for evaluating/collecting against a LoRA checkpoint is
-        #      `+actor.model.lora_path=<checkpoint>` (see CLAUDE.md; proven by Stage 4's real
-        #      eval run and by this project's own real collection-run crash/fix history).
+        # config_spec.overrides may already carry a training-time lora_path -- strip it (see
+        # strip_actor_lora_path_override) before adding this stage's own. Use
+        # +actor.model.lora_path, not runner.ckpt_path: torch.load() on a LoRA adapter
+        # directory raises IsADirectoryError.
         overrides = strip_actor_lora_path_override(config_spec.overrides)
         cmd = (
             f"bash examples/embodiment/eval_embodiment.sh {config_spec.config_name} "
@@ -636,18 +490,14 @@ def train_sequence(
         Callable[[dict[str, Any], str, TrainingConfigSpec], str]
     ] = None,
 ) -> str:
-    """The actual CRL sequence: ONE checkpoint, carried through every edge in order.
+    """The CRL sequence: one checkpoint, carried through every edge in order.
 
-    Use this when you already have a fixed, decided edge list -- e.g. a human reviewed a
-    ``discover_tree()`` preview and approved it as-is. For growing a tree from scratch, prefer
-    ``discover_and_train()`` (see module docstring): this function trains a list that was
-    discovered entirely without real state grounding below the root, since ``discover_tree()``
-    never trains anything as it walks.
+    Use for a fixed, already-decided edge list (e.g. an approved ``discover_tree()`` preview).
+    For growing a tree from scratch, prefer ``discover_and_train()`` -- this trains a list that
+    was discovered without real state grounding below the root.
 
-    ``run_training``/``collect_end_states`` are the two injection points -- production defaults
-    shell out via ``launch_and_wait`` to ``run_embodiment.sh``/``eval_embodiment.sh``; tests
-    inject fakes so no real subprocess/GPU job ever runs. Returns the final checkpoint path (the
-    single, continually-trained policy after every edge).
+    ``run_training``/``collect_end_states`` default to real ``launch_and_wait``-based
+    implementations; tests inject fakes. Returns the final checkpoint path.
     """
     logs_root = Path(logs_root)
     run_training = run_training or _make_default_run_training(logs_root, max_epochs)
@@ -676,7 +526,7 @@ def train_sequence(
 
 
 # ---------------------------------------------------------------------------
-# discover_and_train -- NEW: the interleaved discover-then-train loop (architecture option (a))
+# discover_and_train -- the interleaved discover-then-train loop, depth-first
 # ---------------------------------------------------------------------------
 
 
@@ -704,37 +554,18 @@ def discover_and_train(
     visited: Optional[set] = None,
     initial_edges: Optional[list[dict[str, Any]]] = None,
 ) -> str:
-    """The recommended production entrypoint for growing a tree from scratch (architecture
-    decision (a) -- see module docstring for the full "why" versus ``discover_tree()``).
+    """Grows a tree from scratch depth-first: discover, validate, train, collect end-states,
+    then recurse into the child (now grounded via ``manifest.get_reset_states_path_for_children``,
+    populated by the training that just happened). Returns the final checkpoint.
 
-    At each node: one Phase A call (grounded in whatever real starting-state data the manifest
-    actually has for that node -- see ``starting_states.py``) -> validate -> for each accepted
-    candidate, actually train it and collect its end-states -> record both in ``manifest`` for
-    real -> only then recurse into that child, which will now find real grounding via
-    ``manifest.get_reset_states_path_for_children`` because the training that just happened
-    populated it. Returns the final checkpoint (the single, continually-trained policy).
+    ``stable_base_objects``: opt-in physical-plausibility filter, disabled by default.
 
-    Like ``train_sequence``, ``run_training``/``collect_end_states`` are injectable and default
-    to real ``launch_and_wait``-based implementations; nothing in this package's tests invokes
-    them against real training.
+    Ids are deduped across the whole walk (see ``_dedupe_id``), seeded from ids already in
+    ``manifest`` and ``initial_edges``.
 
-    ``stable_base_objects``: opt-in physical-plausibility filter, disabled (``None``) by default
-    -- see the module docstring's "JUDGMENT CALL" section.
-
-    Ids are deduped deterministically across the WHOLE walk (see ``_dedupe_id`` above), seeded
-    from any ids already in ``manifest`` (and from ``initial_edges``, if given) -- so every
-    ``manifest.add_edge`` call below is guaranteed not to hit a duplicate-id ``ManifestError``
-    from a same-run collision (a real, observed failure mode: the VLM independently proposing
-    the same id at two different nodes).
-
-    ``initial_edges``: skip the Phase A call for ``node`` (the starting node) and use this
-    already-discovered, already-validated candidate list instead -- for continuing a walk whose
-    starting node was discovered in a separate call (e.g. interactively, before handing off to
-    an unattended driver), without paying for a redundant real API call to re-discover the exact
-    same node. Only applies to ``node`` itself; every node below it is discovered normally.
-    Callers are responsible for having already run these candidates through
-    ``predicates.validate_phase_a`` (and deduped them against the manifest) themselves -- this
-    function does not re-validate or re-dedupe ``initial_edges``, only what it discovers itself.
+    ``initial_edges``: skip the Phase A call for the starting node and use this
+    already-discovered, already-validated candidate list instead. Only applies to ``node``
+    itself; not re-validated or re-deduped by this function.
     """
     visited = visited if visited is not None else set()
     logs_root = Path(logs_root)
@@ -742,7 +573,7 @@ def discover_and_train(
     collect_end_states = collect_end_states or _make_default_collect_end_states(logs_root)
 
     state = {"checkpoint": base_checkpoint}
-    seen_ids = {e["id"] for e in manifest.all_edges()}  # seed from prior real edges, if any
+    seen_ids = {e["id"] for e in manifest.all_edges()}
     if initial_edges:
         seen_ids.update(e["id"] for e in initial_edges)
     start_node = frozenset(node)
@@ -799,30 +630,20 @@ def discover_and_train(
 
 
 # ---------------------------------------------------------------------------
-# discover_and_train_by_level -- breadth-first counterpart (architecture correction)
+# discover_and_train_by_level -- breadth-first counterpart
 # ---------------------------------------------------------------------------
 #
-# CORRECTION (real run, real bug): discover_and_train() above is pre-order DFS -- for each
-# candidate at a node, it trains it AND FULLY RECURSES INTO IT (training every descendant)
-# BEFORE ever returning to train that node's next sibling. Launched against the real mug/coke
-# tree starting from a non-root node, this meant it would only ever walk ONE lineage below that
-# node, permanently -- never train a sibling branch at all, let alone the tree's OTHER root
-# child. That directly contradicts PLAN.md section 0's design (root branches into multiple
-# children, ALL of them trained into the single evolving checkpoint, kept as separate leaves,
-# not one lineage chosen and the rest abandoned) and isn't even the "do all of one branch before
-# the other" DFS ordering PLAN.md leaves open as a valid choice among orderings -- it's strictly
-# narrower than that: only one branch, ever.
+# discover_and_train() is pre-order DFS: for each candidate at a node, it trains it and fully
+# recurses into it before trying that node's next sibling. From a non-root starting node with
+# multiple children, this only ever walks one lineage -- a root's other children never get
+# trained at all.
 #
-# discover_and_train_by_level() fixes this by walking BREADTH-FIRST / level-order instead:
-# every edge at depth D (the whole frontier of nodes at that depth) is discovered, trained, and
-# has its end-states collected before depth D+1 is even discovered, let alone trained. The
-# single continually-trained checkpoint is still threaded through every edge in the order
-# actually trained (still one lineage, per PLAN.md section 0 -- level-order changes ONLY the
-# iteration order, not the "one checkpoint" invariant). This is the recommended entrypoint for
-# growing a tree from scratch going forward; discover_and_train() (DFS) is kept for whichever
-# callers genuinely want depth-first (or a single already-known lineage) rather than deleted,
-# since PLAN.md itself treats sibling-ordering as an open, paper-dependent question -- but level
-# order is the correct default for "walk this whole tree autonomously," not DFS.
+# discover_and_train_by_level() walks breadth-first instead: every edge at depth D is
+# discovered, trained, and has its end-states collected before depth D+1 is discovered. Still
+# one checkpoint threaded through every edge in training order -- level order only changes
+# iteration order, not the single-checkpoint invariant. This is the recommended entrypoint for
+# growing a tree unattended; discover_and_train() (DFS) is kept for callers who want a single
+# known lineage.
 
 
 def discover_and_train_by_level(
@@ -848,42 +669,26 @@ def discover_and_train_by_level(
     initial_edges_by_node: Optional[dict[FrozenSet[str], list[dict[str, Any]]]] = None,
     level_queue_dir: Optional[str | Path] = None,
 ) -> str:
-    """Breadth-first / level-order counterpart to ``discover_and_train`` -- see the section
-    comment above for why this, not DFS, is the correct default for walking a whole tree
-    unattended. Fully discovers + trains + collects every edge across the CURRENT depth's whole
-    frontier before advancing to the next depth.
+    """Breadth-first counterpart to ``discover_and_train``. Fully discovers, trains, and
+    collects every edge across the current depth's whole frontier before advancing to the next.
 
-    ``level_queue_dir``: opt-in, purely additive progress logging for external tooling (e.g. a
-    dashboard) -- if given, as soon as one depth's ``level_edges`` is fully computed (discovery
-    done for every node at that depth, already deduped -- before any of them are trained), it's
-    written verbatim to ``<level_queue_dir>/level_<depth>_queue.json`` (overwritten, not
-    appended, if this depth is ever revisited). This is the single source of truth for "what's
-    queued at the current level, with correct ids" -- deliberately NOT re-derived from
-    ``initial_edges_by_node``'s raw seed files on the reader's side, since those still have
-    PRE-dedup ids (e.g. two independently-discovered edges can legitimately share a raw id
-    before ``_dedupe_id`` disambiguates them here) and re-implementing that dedup logic a second
-    time elsewhere would be a real way for the two copies to drift. ``None`` (default) disables
-    this entirely -- no behavior change, no file written, for any caller that doesn't need it.
+    ``level_queue_dir``: if given, each depth's fully-discovered (deduped) ``level_edges`` is
+    written to ``<level_queue_dir>/level_<depth>_queue.json`` right before training starts on
+    that depth. This is the source of truth for "what's queued, with final ids" -- readers
+    shouldn't re-derive it from ``initial_edges_by_node``'s raw (pre-dedup) seed files. ``None``
+    disables it.
 
-    ``initial_edges_by_node``: like ``discover_and_train``'s ``initial_edges``, but generalized
-    to seed MULTIPLE already-discovered nodes at once (not just the single starting node) --
-    e.g. resuming with the root's candidates already known from an earlier real Phase A call
-    AND a depth-1 node's children already discovered too, without paying for either call again.
-    Any node not present as a key is discovered normally via ``phase_a_caller``. Values are
-    trusted as already-validated (same contract as ``initial_edges``) -- this function does not
-    re-run them through ``predicates.validate_phase_a``.
+    ``initial_edges_by_node``: seeds multiple already-discovered nodes at once (root candidates
+    from one earlier call, a depth-1 node's children from another), skipping a redundant Phase A
+    call for each. Values are trusted as already-validated.
 
-    A candidate matching an edge already in ``manifest`` (same precondition + predicate +
-    predicate_args -- see ``_find_matching_existing_edge``, NOT an id match: a real, memoryless
-    Phase A call re-proposing an already-trained edge -- e.g. the root's "place the mug" -- gets
-    a *different* id than the original once ``_dedupe_id`` renames it, so matching has to be by
-    content, not id) is recognized and NOT retrained -- its produces_node still advances into
-    the next level's frontier using the EXISTING edge's own ``produces_node`` (not the
-    candidate's, which may name a phantom node nothing was actually captured against), so the
-    next level's discovery/grounding lines up with whatever real end-states already exist.
+    A candidate matching an edge already in ``manifest`` (by content -- see
+    ``_find_matching_existing_edge``, not id, since a memoryless Phase A call re-proposing an
+    already-trained edge gets a different id once ``_dedupe_id`` renames it) is not retrained;
+    its child node advances into the next level's frontier using the existing edge's own
+    ``produces_node``.
 
-    Returns the final checkpoint (the single, continually-trained policy after every edge
-    actually trained this call, in the order trained).
+    Returns the final checkpoint.
     """
     logs_root = Path(logs_root)
     run_training = run_training or _make_default_run_training(logs_root, max_epochs)
@@ -894,15 +699,10 @@ def discover_and_train_by_level(
 
     seen_ids = {e["id"] for e in manifest.all_edges()}
 
-    # Dedupe each seeded node's own candidates against the running seen_ids BEFORE using them
-    # (real bug, caught in a dry run before spending real GPU time): initial_edges_by_node's
-    # entries typically come from SEPARATE real Phase A calls made without knowledge of each
-    # other (e.g. the root's candidates from one call, a depth-1 node's children from another,
-    # possibly hours apart) -- they can legitimately collide on id even though they're
-    # semantically different edges, exactly what _dedupe_id exists to catch. Unlike freshly
-    # discovered edges (which flow through _discover_node_edges and get deduped there
-    # automatically), seeded edges bypass that path entirely, so this function has to do it
-    # explicitly. Iterates nodes in a fixed (sorted) order for determinism.
+    # Seeded candidates bypass _discover_node_edges' automatic dedup, so do it explicitly here:
+    # initial_edges_by_node's entries typically come from separate Phase A calls (root, then a
+    # depth-1 node, possibly hours apart) and can collide on id despite being different edges.
+    # Sorted iteration order for determinism.
     for seed_node in sorted(initial_edges_by_node, key=sorted):
         deduped = []
         for candidate in initial_edges_by_node[seed_node]:
@@ -910,25 +710,15 @@ def discover_and_train_by_level(
             final_id = _dedupe_id(candidate["id"], seen_ids, seed_node)
             if final_id != candidate["id"]:
                 candidate["id"] = final_id
-                # produces_node was computed by whoever discovered this candidate, using the
-                # OLD id -- keep it consistent with the rename.
+                # produces_node used the old id -- keep it consistent with the rename.
                 candidate["produces_node"] = sorted(seed_node | {final_id})
             seen_ids.add(final_id)
             deduped.append(candidate)
         initial_edges_by_node[seed_node] = deduped
 
-    # Real bug, fixed here (confirmed on a live run: a depth-1 edge warm-started from edge 1's
-    # checkpoint instead of edge 2's, after both root edges were already trained and persisted
-    # in a PRIOR call). `base_checkpoint` is only the right starting point for a truly FRESH
-    # walk (empty manifest). When RESUMING -- which every real driver relaunch does, since
-    # root_candidates.json gets re-seeded every time and the "already trained, don't retrain"
-    # branch below (`existing is not None: ... continue`) deliberately does NOT touch
-    # `checkpoint` per-edge (touching it there risks rolling the checkpoint BACKWARD if an old,
-    # out-of-order duplicate is matched mid-walk -- see that branch's own comment) -- the only
-    # correct source of "what's the single lineage's current real state" is the manifest itself:
-    # every edge is added to it via `manifest.add_edge` immediately after it's actually trained,
-    # in that exact order, so `manifest.all_edges()`'s last entry IS the true current checkpoint,
-    # full stop, regardless of which edges belonged to which depth or branch.
+    # `base_checkpoint` is only correct for a fresh walk (empty manifest). On resume, the true
+    # current checkpoint is the manifest's last-added edge -- edges are added in real training
+    # order regardless of depth/branch, so `manifest.all_edges()[-1]` is authoritative.
     checkpoint = manifest.all_edges()[-1]["checkpoint"] if len(manifest) > 0 else base_checkpoint
     visited_nodes: set[FrozenSet[str]] = set()
     frontier: set[FrozenSet[str]] = {frozenset()}
@@ -938,10 +728,8 @@ def discover_and_train_by_level(
         if max_total_edges is not None and len(manifest) >= max_total_edges:
             break
 
-        # Discover EVERY node at this level first (before training any of them) -- a level can
-        # have more than one node (e.g. both root children's own children, once both root edges
-        # are trained), and none of that level's discovery should depend on training order
-        # within the level.
+        # Discover every node at this level before training any of them -- discovery within a
+        # level must not depend on training order within it.
         level_edges: list[dict[str, Any]] = []
         for node in sorted(frontier, key=sorted):
             if node in visited_nodes:
@@ -977,23 +765,10 @@ def discover_and_train_by_level(
 
             existing = _find_matching_existing_edge(manifest, edge)
             if existing is not None:
-                # Already trained (e.g. in a prior run before this call) -- don't retrain; just
-                # advance its child node into the next level's frontier. Uses the EXISTING
-                # edge's own produces_node, not the candidate's -- if _dedupe_id renamed this
-                # candidate (its id collided with the already-trained edge, seeded into
-                # seen_ids above), its own produces_node would name a phantom node nothing was
-                # actually captured against; the manifest's real record is the source of truth.
-                #
-                # Deliberately does NOT touch `checkpoint` here (e.g. `checkpoint =
-                # existing["checkpoint"]`) even though that looks tempting: this branch can fire
-                # for an edge encountered anywhere in the walk, in whatever order `level_edges`
-                # happens to list candidates, which is NOT guaranteed to match real chronological
-                # training order in general. Setting `checkpoint` from an out-of-order match
-                # could roll it BACKWARD to a stale value, discarding real progress from edges
-                # trained after it. The single correct source for "current checkpoint" is set
-                # once, before this loop, from `manifest.all_edges()`'s real chronological order
-                # (see the comment above the `checkpoint = ...` initialization) -- this branch
-                # just needs to leave it alone.
+                # Already trained -- advance using the EXISTING edge's produces_node (the
+                # candidate's may name a phantom node if _dedupe_id renamed it). Deliberately
+                # does not touch `checkpoint`: level_edges order doesn't match real chronological
+                # training order, so setting it from an out-of-order match could roll it backward.
                 next_frontier.add(frozenset(existing["produces_node"]))
                 continue
 

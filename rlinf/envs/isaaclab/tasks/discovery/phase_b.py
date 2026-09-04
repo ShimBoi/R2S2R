@@ -12,15 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Phase B: eval-time decomposition, precondition-aware. PLAN.md sections 5 and 5.1.
+"""Phase B: eval-time decomposition, precondition-aware.
 
-``resolve_plan`` is the important simplification from PLAN.md 5.1: the whole decomposition is
-resolved ONCE, before the rollout starts, by walking the manifest from the root. The VLM is
-called only at genuine branch points (a node with more than one valid edge); every other node
-has exactly one valid edge and is taken mechanically. For the mug/coke scene this means exactly
-one VLM call resolves an entire episode's plan. No VLM calls happen inside ``step()`` -- the
-returned plan is a plain list the eval-time mixin (Agent A's territory) walks with coded
-predicate checks only.
+``resolve_plan`` resolves the whole decomposition ONCE, before rollout starts, by walking the
+manifest from the root. The VLM is called only at genuine branch points (a node with more than
+one valid edge); every other node has exactly one valid edge, taken mechanically. No VLM calls
+happen inside ``step()`` -- the returned plan is a plain list the eval-time mixin walks with
+coded predicate checks only.
 """
 
 from __future__ import annotations
@@ -126,9 +124,6 @@ def resolve_plan(
     """Walk the manifest from ``node`` (default: root), calling the VLM only at genuine branch
     points (>1 valid edge). Returns a plain ordered list of edge specs. No VLM calls happen
     after this returns -- the caller assigns the result to the eval-time mixin once, at reset.
-
-    Exactly mirrors PLAN.md section 5.1's sketch, parameterized (manifest and the VLM caller are
-    explicit arguments, not module globals) so it's directly unit-testable.
     """
     node = frozenset(node)
     plan: list[dict[str, Any]] = []

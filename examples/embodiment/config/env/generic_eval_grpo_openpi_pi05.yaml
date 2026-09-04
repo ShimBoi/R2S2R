@@ -19,8 +19,8 @@ video_cfg:
   video_base_dir: ${runner.logger.log_path}/video/eval
 
 # Eval-time counterpart to generic_single_edge_grpo_openpi_pi05.yaml: drives
-# generic_eval_task.py's N-step ratchet (PLAN.md section 5.1) over a plan resolved
-# once, up front, by resolve_plan() (Phase B) -- not a per-edge training config.
+# generic_eval_task.py's N-step ratchet over a plan resolved once, up front, by
+# resolve_plan() -- not a per-edge training config.
 init_params:
   id: "GenericEvalTask"
   task_file: "generic_eval_task.py"

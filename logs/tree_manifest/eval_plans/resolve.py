@@ -14,17 +14,14 @@
 # limitations under the License.
 
 """One-off script: verify Phase B's resolve_plan() end-to-end (real VLM calls, no GPU spend)
-against the real, final manifest.json for the mug/coke/cutting-board tree, BEFORE any GPU eval
-is launched. See RLinf CLAUDE.md's "Next extension" / PLAN.md section 5.1.
+against the real, final manifest.json for the mug/coke/cutting-board tree, before any GPU eval
+is launched.
 
 Makes real network calls to the VLM (OPENAI_API_KEY must already be exported in the shell env
--- `set -a; source /scratch/cluster/jshim12/.env; set +a` -- before running this). Cost
-sensitive: exactly one call per task at the root branch point (2 tasks) + at most one call per
-task for the optional bonus phrasing-robustness check (2 more) = at most 4 real calls total,
-well under the ~10-call budget for this task.
+-- `set -a; source /scratch/cluster/jshim12/.env; set +a` -- before running this).
 
 Does NOT write plan files for a task whose resolved sequence doesn't exactly match the expected
-one -- and does not run the bonus check at all unless BOTH main tasks passed cleanly.
+one, and does not run the bonus phrasing-robustness check unless both main tasks passed.
 """
 
 from __future__ import annotations

@@ -14,55 +14,17 @@
 
 """Phase A: offline discovery -- propose the next edge(s) out of a given node.
 
-Prompt builder + VLM call wrapper, per PLAN.md section 3. Stateful: takes the current node
-(which subtasks are already satisfied) and asks what's plausible *from there* -- zero, one, or
-several candidates.
+Prompt builder + VLM call wrapper. Stateful: takes the current node (which subtasks are already
+satisfied) and asks what's plausible *from there* -- zero, one, or several candidates.
 
-REVISED TWICE (see coordinator follow-ups):
-
-Round 1 -- a real ``discover_tree()`` run against the mug/coke scene (``max_depth=4``, the
-original "propose ALL the plausible next atomic subtasks" prompt) produced 52 edges across 23
-branching nodes -- exploding until the depth cap stopped it, not because the model ran out of
-genuine ideas. Concretely it proposed things like ``ceramic_mug_right_of_coke`` (a spatial
-relation that can already hold from the random initial scatter -- no manipulation required),
-``check_ceramic_mug_upright`` (a passive orientation check, not a goal reached by doing
-something), and ``align_objects_on_cutting_board`` (no concrete predicate/args -- not actually
-specified). Fixed with explicit criteria (a)-(d) below, real numeric starting-state grounding
-(``starting_state_summary``, see ``starting_states.py``) replacing the screenshot mechanism, and
-a ``MANIPULATION_GOAL_PREDICATES``/``AMBIENT_STATE_PREDICATES`` classification given to the model
-as prompt guidance.
-
-Round 2 -- a follow-up real run (9 edges, much better) still let through
-``coke_next_to_ceramic_mug`` (``object_next_to``, an ambient predicate -- prompt guidance alone
-wasn't enough) and several physically-dubious base/stacking proposals:
-``place_cutting_board_on_ceramic_mug`` (a flat board balanced on a mug's narrow rim) and
-``stack_coke_ceramic_mug_cutting_board`` / ``stack_coke_on_ceramic_mug`` (something balanced on
-top of a standing coke can, or on top of a mug). Two fixes:
-  1. The manipulation-goal/ambient classification is now ALSO a hard, deterministic filter in
-     ``predicates.validate_phase_a`` (``reject_ambient_predicates=True``, the default) -- not
-     just prompt wording the model can ignore. See that function's docstring.
-  2. A new criterion (e), PHYSICAL STABILITY, reasoned explicitly about which named objects make
-     realistic bases for ``object_on_top``/``stacked``, using the two bad examples above by name.
-     A matching *structural* check also exists now (``validate_phase_a``'s
-     ``stable_base_objects`` parameter), opt-in rather than a blanket default -- see
-     ``orchestrator.py``'s module docstring for the judgment call on why. A follow-up real run
-     with ``stable_base_objects`` deliberately left off confirmed prompt-only guidance was NOT
-     reliable on its own -- 2 of 13 proposals still used a small/narrow object as a stacking
-     base -- so ``stable_base_objects`` is meant to be turned on for real usage.
-
-Round 3 -- the coordinator/user flagged that criteria (a)-(e) as written in round 2 baked this
-specific scene's object names and literal bad-example task ids directly into
-``PHASE_A_PROMPT_TEMPLATE`` (e.g. naming ``ceramic_mug``/``coke``/``cutting_board_a`` and ids
-like ``place_cutting_board_on_ceramic_mug`` in the criteria text itself). That's a real problem:
-per PLAN.md section 0.1, this discovery mechanism is meant to be reused, unmodified, for future
-scenes with entirely different objects -- a template hardcoded to this scene would carry
-nonsensical, irrelevant examples into a totally different object set. Rewritten below so every
-criterion (including physical stability) describes the *failure class* abstractly and reasons
-from ``{object_list}``/``{satisfied_so_far}`` at call time, with zero literal object names or
-task ids anywhere in ``PHASE_A_PROMPT_TEMPLATE`` or the guidance-block builders. Re-verified
-against the real mug/coke scene afterwards (the only real testbed available) to confirm the
-generic rewrite performs at least as well as the scene-specific wording it replaced -- see the
-coordinator report for that run's results.
+Every candidate must pass five criteria (see ``PHASE_A_PROMPT_TEMPLATE``): not trivially
+satisfiable from the starting-state data, achievable given the current layout, concrete and
+unambiguous (maps to one predicate + fully filled args), a goal reached by doing something (not
+a passive/ambient state check -- enforced again downstream by
+``predicates.validate_phase_a``'s hard filter, not just prompt wording), and physically stable
+for object_on_top/stacked proposals. The prompt describes each failure class abstractly and
+reasons from ``{object_list}``/``{satisfied_so_far}`` at call time -- no scene-specific object
+names or example ids are hardcoded into the template, so it's reusable across scenes unmodified.
 """
 
 from __future__ import annotations
@@ -72,10 +34,8 @@ from typing import Any, Callable, Iterable, Optional
 from .predicates import AMBIENT_STATE_PREDICATES, MANIPULATION_GOAL_PREDICATES, build_predicate_menu
 from .vlm_client import VLMCallError, _raw_call, call_vlm
 
-# Re-exported from predicates.py (single source of truth -- see that module's comment) so
-# existing imports of `from phase_a import MANIPULATION_GOAL_PREDICATES` keep working, and so
-# the prompt guidance built here can never list a different set than what validate_phase_a
-# actually enforces.
+# Re-exported from predicates.py (single source of truth) so this module's prompt guidance can
+# never list a different set than validate_phase_a actually enforces.
 __all__ = [
     "MANIPULATION_GOAL_PREDICATES",
     "AMBIENT_STATE_PREDICATES",
@@ -220,12 +180,10 @@ def build_phase_a_prompt(
 ) -> str:
     """Render the Phase A prompt.
 
-    ``starting_state_summary`` is real, numeric starting-state text (see ``starting_states.py``)
-    -- the primary grounding mechanism now. ``scene_screenshot`` (a base64 PNG) is a secondary,
-    legacy fallback: only used to fill the starting-state section when no real numeric summary
-    is available at all (``render_current_node`` is still a stub returning ``None``, so in
-    practice this path is currently inert; kept only so a future image-grounding source has
-    somewhere to plug in without another prompt rewrite).
+    ``starting_state_summary`` (real, numeric starting-state text, see ``starting_states.py``) is
+    the primary grounding mechanism. ``scene_screenshot`` (base64 PNG) is a fallback used only
+    when no numeric summary is available; currently inert since ``render_current_node`` always
+    returns ``None``.
     """
     if predicate_menu is None:
         predicate_menu = build_predicate_menu()
@@ -279,11 +237,8 @@ def call_vlm_phase_a(
     )
     response = call_vlm(prompt, image_b64=scene_screenshot, model=model, client_fn=client_fn)
     parsed = response.parsed
-    # Real-world robustness fix (hit on a live gpt-4o call, not hypothetical): when there's
-    # exactly one candidate, models sometimes collapse "a JSON list with one entry" down to a
-    # bare JSON object instead -- despite the prompt explicitly saying "a JSON list". A single
-    # candidate dict has exactly the shape a Phase A entry should (id/predicate/... keys), so
-    # this is an unambiguous, safe normalization, not a guess at unrelated malformed output.
+    # Models sometimes return a bare JSON object instead of a one-entry list when there's
+    # exactly one candidate.
     if isinstance(parsed, dict):
         parsed = [parsed]
     if not isinstance(parsed, list):

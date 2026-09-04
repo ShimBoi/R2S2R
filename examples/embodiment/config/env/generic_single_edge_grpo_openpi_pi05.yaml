@@ -8,7 +8,7 @@ group_size: 1
 
 reward_coef: 1.0
 use_fixed_reset_state_ids: False
-eval_only: False  # SharedRandomization/CapturedStateRandomization don't branch on this; kept for interface consistency with other robolab env configs.
+eval_only: False  # unused by SharedRandomization/CapturedStateRandomization; kept for interface consistency
 max_steps_per_rollout_epoch: 225
 max_episode_steps: 225 # max episode steps for truncation
 
@@ -18,21 +18,12 @@ video_cfg:
   fps: 20
   video_base_dir: ${runner.logger.log_path}/video/train
 
-# Real (production-scale) config for generic_single_edge_task.py -- the tree-discovery
-# extension's generic replacement for a hand-written per-edge task file (PLAN.md section
-# 8.0). Proven end-to-end (config schema, generic task file, batch-shape math) by
-# tree_ext_smoketest_train.yaml/tree_ext_smoketest_A first; this is the same shape with
-# smoke-test speed shortcuts undone (see the parent
-# generic_single_edge_grpo_openpi_pi05.yaml for exactly which fields were restored).
-#
-# The edge_spec/reset_states_path values below are PLACEHOLDERS -- every real edge
-# discovered by discover_and_train() overrides both via CLI
+# Env config for generic_single_edge_task.py. The edge_spec/reset_states_path values below
+# are PLACEHOLDERS -- every real edge overrides both via CLI
 # (`+env.train.init_params.edge_spec_path=<path>`,
-# `env.train.init_params.reset_states_path=<path or null>`, and the same mirrored onto
-# env.eval -- see orchestrator.py's generate_training_config). The placeholder here is
-# harmless (never actually used unoverridden in a real discover_and_train() run) but kept
-# non-trivial (a real object_on_top example, not garbage) so this config is still directly
-# runnable standalone for a quick sanity check without any CLI overrides at all.
+# `env.train.init_params.reset_states_path=<path or null>`, mirrored onto env.eval -- see
+# orchestrator.py's generate_training_config). Kept as a real object_on_top example so this
+# config is directly runnable standalone without CLI overrides.
 init_params:
   id: "GenericSingleEdgeTask"
   task_file: "generic_single_edge_task.py"

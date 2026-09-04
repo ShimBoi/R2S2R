@@ -14,25 +14,18 @@
 
 """Manifest: persistent storage for a scene's discovered subtask tree.
 
-Per PLAN.md section 2: a scene's tree is a flat list of *edge* records -- an edge list for the
-tree, not a flat list of independent options. Each edge:
+A scene's tree is a flat list of *edge* records:
 
     precondition (exact parent node) --[predicate/predicate_args]--> produces_node (child node)
 
-A **node** is the set of already-satisfied subtask ids (root = the empty set). Nodes are
-represented as ``frozenset[str]`` in the Python API; on disk (and in edge records) they're
-sorted ``list[str]`` for JSON-friendliness and stable diffs.
+A **node** is the set of already-satisfied subtask ids (root = empty set). Nodes are
+``frozenset[str]`` in the Python API; on disk they're sorted ``list[str]``.
 
-The one rule this module exists to enforce mechanically (PLAN.md section 0 is emphatic about
-this): **exact-match preconditions, not subset-match**. ``edges_from(node)`` only ever returns
-edges whose recorded ``precondition`` is exactly equal to ``node`` -- a superset state must not
-match a subset precondition, even though the subset's requirements are technically satisfied.
-The reason is the reset-distribution guarantee: a subtask's `reset_states_path` was collected
-under its exact precondition; invoking it from a state with additional things also satisfied
-is a genuine train/eval distribution mismatch, not just pedantry.
+``edges_from(node)`` matches preconditions exactly, not by subset: a subtask's
+``reset_states_path`` was collected under its exact precondition, so resetting it from a state
+that also satisfies extra things would be a train/eval distribution mismatch.
 
-This is plain JSON-file-backed storage, not a database -- appropriate at the scale this is
-built for (one scene, a handful to a few dozen edges).
+Plain JSON-file-backed storage -- fine at this scale (one scene, a handful of edges).
 """
 
 from __future__ import annotations
@@ -171,12 +164,7 @@ class Manifest:
     # reads
     # ------------------------------------------------------------------
     def edges_from(self, node: Optional[Iterable[str]]) -> list[dict[str, Any]]:
-        """Edges whose ``precondition`` is EXACTLY ``node`` -- not a subset match.
-
-        This is the concrete enforcement of the exact-match rule (see module docstring / PLAN.md
-        section 0): a node that is a strict superset of some edge's precondition does NOT match
-        that edge, even though every individual requirement is technically satisfied.
-        """
+        """Edges whose ``precondition`` is EXACTLY ``node`` -- not a subset match."""
         target = _canon_node(node)
         return [
             dict(e) for e in self._edges if _canon_node(e["precondition"]) == target
