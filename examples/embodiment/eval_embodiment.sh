@@ -45,7 +45,9 @@ fi
 
 echo "Using ROBOT_PLATFORM=$ROBOT_PLATFORM"
 
-LOG_DIR="${REPO_PATH}/logs/$(date +'%Y%m%d-%H:%M:%S')-${CONFIG_NAME}"
+if [ -z "${LOG_DIR}" ]; then
+    LOG_DIR="${REPO_PATH}/logs/$(date +'%Y%m%d-%H:%M:%S')-${CONFIG_NAME}"
+fi
 MEGA_LOG_FILE="${LOG_DIR}/eval_embodiment.log"
 mkdir -p "${LOG_DIR}"
 
