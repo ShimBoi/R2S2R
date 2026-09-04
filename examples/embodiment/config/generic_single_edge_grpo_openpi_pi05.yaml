@@ -1,0 +1,194 @@
+defaults:
+  - env/generic_single_edge_grpo_openpi_pi05@env.train
+  - env/generic_single_edge_grpo_openpi_pi05@env.eval
+  - model/pi0_5@actor.model
+  - training_backend/fsdp@actor.fsdp_config
+  - weight_syncer/patch_syncer@weight_syncer
+  - override hydra/job_logging: stdout
+
+# Real (production-scale) config for training ONE edge of a VLM-discovered subtask tree
+# (PLAN.md section 8.0) via generic_single_edge_task.py -- the reusable replacement for a
+# hand-written per-edge task file (mug_on_cutting_board_task.py /
+# subtask_2_coke_on_cuttingboard_task.py were the last hand-written ones; this generic
+# file plus this config now stand in for all future edges, whatever the discovered tree).
+#
+# Batch-shape math (total_num_envs/group_size/rollout_epoch/global_batch_size = 64/8/2/128)
+# and the generic-task-file mechanism itself were proven end-to-end by
+# tree_ext_smoketest_train.yaml/tree_ext_smoketest_A first (kept as a regression-test
+# artifact, not deleted) -- that smoke test is what caught a real crash
+# (RuntimeError: shape '[-1, 8]' invalid for input of size 1) that a naive total_num_envs=1
+# smoke-scale config would have hidden. This config restores real scale on top of that
+# proven math: max_epochs 60 (vs the smoke test's 2), save_interval 20 (vs 1),
+# update_epoch 3 (vs 1), logger_backends ["wandb"] (vs [] -- no wandb sync needed for a
+# smoke test), eval total_num_envs 80 / eval_rollout_epoch 10 (vs 8 / 1), save_video True
+# for eval (vs False) -- exactly mirroring mug_coke_subtask_1_grpo_openpi_pi05.yaml's real
+# settings, the proven real-scale reference config for this same batch-math family.
+#
+# generate_training_config() (rlinf/envs/isaaclab/tasks/discovery/orchestrator.py)
+# overrides env.train.init_params.edge_spec_path/reset_states_path (and mirrors the same
+# onto env.eval.init_params.*, since eval_embodiment.sh runs against env.eval, not
+# env.train -- see that function's docstring) per real discovered edge; nothing about this
+# top-level config needs to change per edge.
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  searchpath:
+    - file://${oc.env:EMBODIED_PATH}/config/
+
+cluster:
+  num_nodes: 1
+  component_placement:
+    actor,env,rollout: all
+
+runner:
+  task_type: embodied
+  logger:
+    log_path: "../results"
+    project_name: rlinf
+    experiment_name: "generic_single_edge_grpo_openpi_pi05"
+    logger_backends: ["wandb"] # wandb, swanlab
+
+  max_epochs: 60
+  max_steps: -1
+
+  only_eval: False
+  val_check_interval: -1
+  save_interval: 20
+
+  resume_dir: null # Optional: path to a saved checkpoint directory, such as 'checkpoints/global_step_10'. If not None, it will be used to resume training.
+  ckpt_path: null  # Optional: path to a .pt checkpoint. If not None, it will be loaded after the model is instantiated (for evaluation).
+
+algorithm:
+  normalize_advantages: True
+  kl_penalty: kl # how to estimate kl divergence: kl or kl_penalty
+  group_size: 8
+  reward_coef: 1.0
+  rollout_epoch: 2
+  eval_rollout_epoch: 10
+
+  reward_type: chunk_level
+  logprob_type: chunk_level
+  entropy_type: token_level
+
+  update_epoch: 3
+  adv_type: grpo
+  loss_type: actor
+  loss_agg_func: "token-mean"
+  kl_beta: 0.0
+  entropy_bonus: 0
+  clip_ratio_high: 0.2
+  clip_ratio_low: 0.2
+  clip_ratio_c: 3.0
+  value_clip: 0.2
+  huber_delta: 10.0
+
+  gamma: 0.99
+  gae_lambda: 0.95
+
+  filter_rewards: False
+  rewards_lower_bound: 0.1
+  rewards_upper_bound: 0.9
+  # params for generation
+  sampling_params:
+    do_sample: True
+    temperature_train: 1.0
+    temperature_eval: 0.6
+    top_k: 50
+    top_p: 1.0
+    repetition_penalty: 1.0
+    add_BOS: False
+
+  # length argument for autoregressive sampling
+  # max length means max amount of tokens to generate
+  length_params:
+    max_new_token: null
+    max_length: 1024
+    min_length: 1
+
+env:
+  group_name: "EnvGroup"
+
+  train:
+    total_num_envs: 64
+    max_episode_steps: 225
+    max_steps_per_rollout_epoch: 225
+    use_fixed_reset_state_ids: True
+    auto_reset: False
+    ignore_terminations: False
+    eval_only: False
+    seed: 42
+
+  eval:
+    total_num_envs: 80
+    max_episode_steps: 225
+    max_steps_per_rollout_epoch: 225
+    auto_reset: False
+    ignore_terminations: False
+    use_fixed_reset_state_ids: True
+    eval_only: False  # this experiment has no held-out train/test split (see PLAN.md section 0)
+    video_cfg:
+      save_video: True
+      info_on_video: True
+      video_base_dir: ${runner.logger.log_path}/video/eval
+    seed: 42
+
+rollout:
+  group_name: "RolloutGroup"
+  backend: "huggingface"
+  enable_offload: True
+  pipeline_stage_num: 1
+
+  model:
+    model_path: "./model/pi05_droid_jointpos"
+    precision: ${actor.model.precision}
+
+actor:
+  group_name: "ActorGroup"
+  training_backend: "fsdp"
+  micro_batch_size: 2
+  global_batch_size: 128
+  seed: 42
+  enable_offload: True
+
+  model:
+    model_path: "./model/pi05_droid_jointpos"
+    model_type: "openpi"
+    action_dim: 7
+    num_action_chunks: 15
+    num_steps: 5
+    openpi:
+      config_name: "pi05_droid_jointpos"
+      num_images_in_input: 2
+      noise_level: 0.5
+      joint_logprob: False
+      num_steps: ${actor.model.num_steps}
+
+    is_lora: True
+    lora_rank: 8
+
+  optim:
+    lr: 5.0e-6
+    value_lr: 1.0e-4
+    adam_beta1: 0.9
+    adam_beta2: 0.95
+    adam_eps: 1.0e-08
+    clip_grad: 1.0
+    weight_decay: 0.01
+    critic_warmup_steps: 0
+
+  fsdp_config:
+    strategy: "fsdp"
+    sharding_strategy: "no_shard"
+    gradient_checkpointing: False # for openpi, gradient checkpointing is not supported, please do not change this value
+    mixed_precision:
+      param_dtype: ${actor.model.precision}
+      reduce_dtype: ${actor.model.precision}
+      buffer_dtype: ${actor.model.precision}
+
+reward:
+  use_reward_model: False
+
+critic:
+  use_critic_model: False
