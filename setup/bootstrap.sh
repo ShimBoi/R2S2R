@@ -1,8 +1,8 @@
 #!/bin/bash
 # Portable, host-OS-agnostic environment bootstrap. See ../SETUP.md for the narrative version of
-# every stage below -- this script automates everything that's mechanical/deterministic; a few
-# steps (model checkpoint source, .env secrets) are deliberately left to SETUP.md's manual section
-# since they need a human decision or a credential this script has no business holding.
+# every stage below -- this script automates everything that's mechanical/deterministic; the .env
+# secrets step is deliberately left to SETUP.md's manual section since it needs a credential this
+# script has no business holding.
 #
 # Run from inside this repo's checkout, e.g.:
 #   cd RLinf && bash setup/bootstrap.sh all
@@ -25,8 +25,11 @@ ROBOLAB_GIT_URL="${ROBOLAB_GIT_URL:-https://github.com/NVlabs/RoboLab.git}"
 POLARIS_HUB_HF_REPO="${POLARIS_HUB_HF_REPO:-owhan/PolaRiS-Hub}"
 SANDBOX_DIR="${SANDBOX_DIR:-$WORKSPACE_ROOT/rlinf_sandbox}"
 CUDA_DIR="${CUDA_DIR:-$WORKSPACE_ROOT/cuda}"
+MODEL_GCS_PATH="${MODEL_GCS_PATH:-gs://openpi-assets/checkpoints/pi05_droid_jointpos}"
+MODEL_CONFIG_NAME="${MODEL_CONFIG_NAME:-pi05_droid_jointpos}"
+OPENPI_GIT_URL="${OPENPI_GIT_URL:-https://github.com/RLinf/openpi}"
 
-STAGES=(sandbox cuda vulkan-icd robolab isaac-sim polaris-hub install enter-script)
+STAGES=(sandbox cuda vulkan-icd robolab isaac-sim polaris-hub install model enter-script)
 
 log() { echo "[bootstrap] $*"; }
 banner() { echo; echo "=== $* ==="; }
@@ -43,9 +46,10 @@ Env overrides:
   ROBOLAB_GIT_URL (default $ROBOLAB_GIT_URL)
   POLARIS_HUB_HF_REPO (default $POLARIS_HUB_HF_REPO)
   SANDBOX_DIR (default $SANDBOX_DIR), CUDA_DIR (default $CUDA_DIR)
+  MODEL_GCS_PATH (default $MODEL_GCS_PATH), MODEL_CONFIG_NAME (default $MODEL_CONFIG_NAME)
 
 Not covered here -- see SETUP.md's manual section:
-  model checkpoint download, .env (OPENAI_API_KEY).
+  .env (OPENAI_API_KEY).
 EOF
 }
 
@@ -173,6 +177,46 @@ stage_install() {
         bash -c "cd '$RLINF_DIR' && bash requirements/install.sh embodied --model openpi --env isaaclab"
 }
 
+stage_model() {
+    banner "Model checkpoint ($MODEL_CONFIG_NAME, converted to PyTorch)"
+    local final_dir="$RLINF_DIR/model/$MODEL_CONFIG_NAME"
+    if [ -d "$final_dir" ] && [ -n "$(ls -A "$final_dir" 2>/dev/null)" ]; then
+        log "$final_dir already populated, skipping"
+        return 0
+    fi
+    if [ ! -f "$RLINF_DIR/.venv/bin/python" ]; then
+        echo "No venv at $RLINF_DIR/.venv -- run the 'install' stage first, then re-run 'model'." >&2
+        exit 1
+    fi
+    if ! command -v gsutil >/dev/null 2>&1; then
+        log "'gsutil' not found -- installing (public bucket, no GCP account needed for read access)"
+        pip install --user -q gsutil
+    fi
+
+    mkdir -p "$RLINF_DIR/model"
+    local raw_dir="${final_dir}.raw"
+    rm -rf "$raw_dir"
+    log "downloading raw JAX checkpoint from $MODEL_GCS_PATH"
+    gsutil -m cp -r "$MODEL_GCS_PATH" "$raw_dir"
+
+    local openpi_src="$WORKSPACE_ROOT/.openpi-src"
+    if [ ! -d "$openpi_src" ]; then
+        # convert_jax_model_to_pytorch.py isn't shipped in the installed openpi wheel
+        # (install.sh does `uv pip install git+...`, no local clone) -- shallow-clone just to
+        # get this one conversion script.
+        git clone --depth 1 "$OPENPI_GIT_URL" "$openpi_src"
+    fi
+
+    log "converting to PyTorch format at $final_dir"
+    "$RLINF_DIR/.venv/bin/python" "$openpi_src/examples/convert_jax_model_to_pytorch.py" \
+        --checkpoint_dir "$raw_dir" \
+        --config_name "$MODEL_CONFIG_NAME" \
+        --output_path "$final_dir"
+    cp -r "$raw_dir/assets" "$final_dir/" 2>/dev/null || true
+    rm -rf "$raw_dir"
+    log "done: $final_dir"
+}
+
 stage_enter_script() {
     banner "Generating enter_container.sh"
     local out="$WORKSPACE_ROOT/enter_container.sh"
@@ -218,6 +262,7 @@ run_stage() {
         isaac-sim) stage_isaac_sim ;;
         polaris-hub) stage_polaris_hub ;;
         install) stage_install ;;
+        model) stage_model ;;
         enter-script) stage_enter_script ;;
         *) echo "Unknown stage: $1 (see --help)" >&2; exit 1 ;;
     esac

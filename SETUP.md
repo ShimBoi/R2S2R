@@ -56,12 +56,11 @@ resume if one stage fails partway (network hiccup, disk fills up, etc.). Run a s
 | `isaac-sim` | Downloads + unzips the Isaac Sim 5.1.0 standalone build into `RLinf/isaac_sim/` | 15-30 min |
 | `polaris-hub` | `hf download`s the PolaRiS-Hub scene/asset dataset | 5-10 min |
 | `install` | Runs `requirements/install.sh embodied --model openpi --env isaaclab` **inside** the sandbox | 20-40 min |
+| `model` | Downloads + converts the `pi05_droid_jointpos` checkpoint (needs `install` first, for the venv) | 15-30 min |
 | `enter-script` | Generates `enter_container.sh` (this machine's equivalent of `enter_robolab.sh`) | instant |
 
-Not automated (see [Manual steps](#manual-steps-not-automated) — genuinely need a human, a
-credential, or a judgment call):
+Not automated — genuinely needs a human and a credential, see [step 9](#openai-key):
 
-- Model checkpoint download (a few plausible sources — see below).
 - The `.env` file holding your `OPENAI_API_KEY`.
 - Whatever the *actual* GRPO/training checkpoints from your prior runs are (those live under
   `RLinf/logs/**/checkpoints/`, are not part of this repo, and are yours to `rsync`/`scp` over
@@ -167,27 +166,27 @@ apptainer exec --nv --bind "$(pwd)":"$(pwd)" ../rlinf_sandbox/ bash -c '
 
 This project's configs reference `model.model_path: "./model/pi05_droid_jointpos"` — the openpi
 π0.5 DROID-joint-position checkpoint, **not** RoboLab's or PolaRiS's own pretrained checkpoints.
-I could confirm the *sibling* PolaRiS-finetuned checkpoint's exact download path from RLinf's own
-docs (`gs://openpi-assets/checkpoints/polaris/pi05_droid_jointpos_polaris`) but not this project's
-non-polaris `pi05_droid_jointpos` one with full certainty — verify against whatever source you
-actually used previously (check old machine's shell history / notes) before trusting this
-verbatim:
+Confirmed source: `gs://openpi-assets/checkpoints/pi05_droid_jointpos` (a public bucket — no GCP
+account needed for read access). `bootstrap.sh`'s `model` stage automates this end to end
+(download raw JAX checkpoint → convert to PyTorch via `openpi`'s own conversion script → place at
+the exact path configs expect); by hand it's:
 
 ```bash
-mkdir -p RLinf/model && cd RLinf/model
-gsutil -m cp -r gs://openpi-assets/checkpoints/pi05_droid_jointpos .   # best-effort; verify
-# then, inside the sandbox venv (openpi is one of its deps):
-python /path/to/openpi/examples/convert_jax_model_to_pytorch.py \
-    --checkpoint_dir ./pi05_droid_jointpos \
+gsutil -m cp -r gs://openpi-assets/checkpoints/pi05_droid_jointpos RLinf/model/pi05_droid_jointpos.raw
+git clone --depth 1 https://github.com/RLinf/openpi /tmp/openpi-src   # convert script isn't in the installed wheel
+RLinf/.venv/bin/python /tmp/openpi-src/examples/convert_jax_model_to_pytorch.py \
+    --checkpoint_dir RLinf/model/pi05_droid_jointpos.raw \
     --config_name pi05_droid_jointpos \
-    --output_path ./pi05_droid_jointpos_pt
+    --output_path RLinf/model/pi05_droid_jointpos
+cp -r RLinf/model/pi05_droid_jointpos.raw/assets RLinf/model/pi05_droid_jointpos/
+rm -rf RLinf/model/pi05_droid_jointpos.raw
 ```
 
-`gsutil` needs the Google Cloud SDK (`pip install gsutil` is enough for anonymous/public-bucket
-reads — `openpi-assets` doesn't require a GCP account). The `RLinf-Pi05-Polaris-droid_jointpos`
-checkpoint (`hf download RLinf/RLinf-Pi05-Polaris-droid_jointpos`) is a *different*, PolaRiS-tuned
-checkpoint present in the old machine's `model/` directory but not referenced by any config this
-project's tree-extension work actually uses — skip it unless you specifically need it.
+`gsutil` needs the Google Cloud SDK (`pip install gsutil` is enough for this). The
+`RLinf-Pi05-Polaris-droid_jointpos` checkpoint (`hf download RLinf/RLinf-Pi05-Polaris-droid_jointpos`)
+is a *different*, PolaRiS-tuned checkpoint present in the old machine's `model/` directory but not
+referenced by any config this project's tree-extension work actually uses — skip it unless you
+specifically need it.
 
 ### 9. `.env` (OpenAI key) {#openai-key}
 
