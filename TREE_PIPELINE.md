@@ -124,6 +124,11 @@ How one edge becomes a training run:
    JSONL.
 6. `manifest.add_edge()` records the edge with its checkpoint and `reset_states_path`.
 
+**Before/after success rates** (shown on the dashboard): there is no separate pre-training eval.
+"Before" = success rate in the edge's first training rollout epoch, i.e. the warm-started
+checkpoint before any gradient updates on that edge. "After" = success rate from the
+end-state collection run (step 5), which doubles as the post-training eval.
+
 **Resuming.** Relaunching skips edges already in `manifest.json`. A re-run of Phase A might
 propose an already-trained edge under a different (deduped) id, so "already trained" is matched
 by content (precondition + predicate + args), not id. The running checkpoint is restored from
