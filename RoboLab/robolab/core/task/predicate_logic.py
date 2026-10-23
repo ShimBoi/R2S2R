@@ -705,7 +705,7 @@ def upright(world, object: str, tolerance: float = 0.1, up_axis: str = "z", env_
     axis_idx = axis_map[up_axis.lower()]
 
     if env_id is not None:
-        w, x, y, z = quat[0], quat[1], quat[2], quat[3]
+        x, y, z, w = quat[0], quat[1], quat[2], quat[3]
         R = torch.tensor([
             [1 - 2*(y*y + z*z), 2*(x*y - w*z), 2*(x*z + w*y)],
             [2*(x*y + w*z), 1 - 2*(x*x + z*z), 2*(y*z - w*x)],
@@ -720,8 +720,8 @@ def upright(world, object: str, tolerance: float = 0.1, up_axis: str = "z", env_
             print(f"upright: '{object}' upright (up_axis={up_axis}, tol={tolerance}) -> {result}")
         return result
     else:
-        # quat: (N, 4) wxyz format
-        w, x, y, z = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
+        # quat: (N, 4) xyzw format
+        x, y, z, w = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
         # Build rotation matrices column for axis_idx
         if axis_idx == 0:
             up_z = 2*(x*z - w*y)  # R[2, 0]

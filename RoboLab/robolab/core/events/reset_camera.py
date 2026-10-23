@@ -9,6 +9,7 @@ from isaaclab.sensors import Camera
 from isaaclab.utils import configclass
 
 import robolab.constants
+from robolab.core.utils.env_ids import resolve_env_ids
 
 
 ########################################################
@@ -100,15 +101,15 @@ def sample_camera_pose_uniform(
     Returns:
         Tuple of (positions, orientations) tensors.
             - positions: Shape (num_envs, 3)
-            - orientations: Shape (num_envs, 4) in quaternion format (w, x, y, z)
+            - orientations: Shape (num_envs, 4) in quaternion format (x, y, z, w)
     """
     num_envs = len(env_ids)
     device = camera.device
 
     # Get current camera poses as the base
     # Camera data provides pos_w and quat_w_ros (or quat_w depending on convention)
-    current_positions = camera.data.pos_w[env_ids].clone()
-    current_orientations = camera.data.quat_w_ros[env_ids].clone()
+    current_positions = camera.data.pos_w.torch[env_ids].clone()
+    current_orientations = camera.data.quat_w_ros.torch[env_ids].clone()
 
     # Create pose ranges tensor
     range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
@@ -156,6 +157,7 @@ def reset_camera_pose_uniform(
                      "roll": (-0.1, 0.1), "pitch": (-0.1, 0.1), "yaw": (-0.1, 0.1)}
         camera_names: The camera name(s) to randomize. Must match names in env.scene.sensors.
     """
+    env_ids = resolve_env_ids(env, env_ids)
     names = _parse_camera_names(camera_names)
 
     for camera_name in names:
@@ -201,6 +203,7 @@ def reset_camera_pose_to_default(
         env_ids: The environment indices to reset.
         camera_names: The camera name(s) to reset. Must match names in env.scene.sensors.
     """
+    env_ids = resolve_env_ids(env, env_ids)
     names = _parse_camera_names(camera_names)
 
     for camera_name in names:
@@ -238,8 +241,9 @@ def reset_camera_pose_absolute(
         env_ids: The environment indices to reset.
         camera_names: The camera name(s) to reset. Must match names in env.scene.sensors.
         position: The target position as (x, y, z). If None, position is unchanged.
-        orientation: The target orientation as quaternion (w, x, y, z). If None, orientation is unchanged.
+        orientation: The target orientation as quaternion (x, y, z, w), ROS convention. If None, orientation is unchanged.
     """
+    env_ids = resolve_env_ids(env, env_ids)
     names = _parse_camera_names(camera_names)
 
     for camera_name in names:
@@ -258,8 +262,8 @@ def reset_camera_pose_absolute(
         device = camera.device
 
         # Get current poses
-        current_positions = camera.data.pos_w[env_ids].clone()
-        current_orientations = camera.data.quat_w_ros[env_ids].clone()
+        current_positions = camera.data.pos_w.torch[env_ids].clone()
+        current_orientations = camera.data.quat_w_ros.torch[env_ids].clone()
 
         # Override with specified values
         if position is not None:

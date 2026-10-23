@@ -15,7 +15,7 @@ class CameraObservationCfg:
     class ImageObsCfg(ObsGroup):
         """Observations for policy."""
         egocentric_wide_angle_camera = ObsTerm(
-            func=mdp.observations.image,
+            func=mdp.image_rgb,
             params={
                 "sensor_cfg": SceneEntityCfg("egocentric_wide_angle_camera"),
                 "data_type": "rgb",
@@ -24,7 +24,7 @@ class CameraObservationCfg:
             )
 
         egocentric_mirrored_wide_angle_camera = ObsTerm(
-            func=mdp.observations.image,
+            func=mdp.image_rgb,
             params={
                 "sensor_cfg": SceneEntityCfg("egocentric_mirrored_camera"),
                 "data_type": "rgb",

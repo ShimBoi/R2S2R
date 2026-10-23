@@ -21,11 +21,11 @@ from typing import Any, Callable
 import isaaclab.sim.utils as sim_utils
 import numpy as np
 import torch
-from isaaclab.assets import Articulation, AssetBase, DeformableObject, RigidObject
+from isaaclab.assets import Articulation, Asset, AssetBase, BaseArticulation, DeformableObject, RigidObject
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.sensors.frame_transformer.frame_transformer import FrameTransformer
+from isaaclab.sim.views import UsdFrameView
 from isaaclab.utils.math import transform_points
-from isaacsim.core.prims import XFormPrim
 from pxr import Gf, Usd, UsdGeom
 
 import robolab.constants
@@ -75,6 +75,8 @@ class WorldState:
         env: ManagerBasedRLEnv,
     ):
         self._local_geometry_cache: dict[str, dict] = {}
+        # Pose views for static extras, which Isaac Lab 3 spawns without a runtime view.
+        self._extra_views: dict[str, UsdFrameView] = {}
         # Stateful predicate storage. Outer key identifies the predicate +
         # its parameterization; inner dict is opaque to WorldState except for
         # the optional "__reset__" callable, which is invoked per env_ids on
@@ -86,6 +88,7 @@ class WorldState:
         if env != self.env:
             self.env = env
             self._local_geometry_cache.clear()
+            self._extra_views.clear()
             self._predicate_state.clear()
             if robolab.constants.DEBUG:
                 caller_info = get_caller_info()
@@ -109,8 +112,17 @@ class WorldState:
         return entities
 
     @property
-    def extras(self) -> dict[str, XFormPrim]:
+    def extras(self) -> dict[str, Asset]:
         return self.env.scene.extras
+
+    def _get_extra_view(self, body_name: str) -> UsdFrameView:
+        """Return a cached USD pose view over every prim of a static extra."""
+        if body_name not in self._extra_views:
+            body = self.extras[body_name]
+            self._extra_views[body_name] = UsdFrameView(
+                body.cfg.prim_path, device=self.env.device, validate_xform_ops=False
+            )
+        return self._extra_views[body_name]
 
     @property
     def objects(self) -> dict[str, RigidObject]:
@@ -252,7 +264,7 @@ class WorldState:
             env_id: None → (num_envs, 7), int → (7,)
         """
         articulation = self.get_articulation(articulation_name)
-        link_data = articulation.data.body_link_state_w  # (num_envs, num_bodies, 13)
+        link_data = articulation.data.body_link_state_w.torch  # (num_envs, num_bodies, 13)
         link_idx = self.get_articulation_link_index(articulation_name, link_name)
         if env_id is None:
             return link_data[:, link_idx, :7].clone().detach()  # (num_envs, 7)
@@ -262,7 +274,7 @@ class WorldState:
     def get_joint_names(self, body_name: str) -> list[str]:
         """Get joint names for articulated body"""
         body = self.get_body(body_name)
-        if not isinstance(body, Articulation):
+        if not isinstance(body, BaseArticulation):
             raise ValueError(f"Object {body_name} is not an articulation")
         return body.data.joint_names
 
@@ -273,11 +285,11 @@ class WorldState:
             env_id: None → (num_envs, num_joints), int → (num_joints,)
         """
         body = self.get_body(body_name)
-        if not isinstance(body, Articulation):
+        if not isinstance(body, BaseArticulation):
             raise ValueError(f"Object {body_name} is not an articulation")
         if env_id is None:
-            return body.data.joint_pos.clone().detach()
-        return body.data.joint_pos[env_id].clone().detach()
+            return body.data.joint_pos.torch.clone().detach()
+        return body.data.joint_pos.torch[env_id].clone().detach()
 
     def get_joint_velocity(self, body_name: str, env_id: int | None = None) -> torch.Tensor:
         """Get current joint velocities.
@@ -286,11 +298,11 @@ class WorldState:
             env_id: None → (num_envs, num_joints), int → (num_joints,)
         """
         body = self.get_body(body_name)
-        if not isinstance(body, Articulation):
+        if not isinstance(body, BaseArticulation):
             raise ValueError(f"Object {body_name} is not an articulation")
         if env_id is None:
-            return body.data.joint_vel.clone().detach()
-        return body.data.joint_vel[env_id].clone().detach()
+            return body.data.joint_vel.torch.clone().detach()
+        return body.data.joint_vel.torch[env_id].clone().detach()
 
     #########################################################
     # Frames
@@ -309,8 +321,8 @@ class WorldState:
         frame_names = frames.data.target_frame_names
         frame_idx = frame_names.index(frame)
 
-        frame_pos_w = frames.data.target_pos_w[:, frame_idx, :].clone().detach()
-        frame_quat_w = frames.data.target_quat_w[:, frame_idx, :].clone().detach()
+        frame_pos_w = frames.data.target_pos_w.torch[:, frame_idx, :].clone().detach()
+        frame_quat_w = frames.data.target_quat_w.torch[:, frame_idx, :].clone().detach()
 
         if env_id is not None:
             frame_pos_w = frame_pos_w[env_id]
@@ -334,8 +346,8 @@ class WorldState:
         frame_names = frames.data.target_frame_names
         frame_idx = frame_names.index(frame)
 
-        frame_pos_tf = frames.data.target_pos_source[:, frame_idx, :].clone().detach()
-        frame_quat_tf = frames.data.target_quat_source[:, frame_idx, :].clone().detach()
+        frame_pos_tf = frames.data.target_pos_source.torch[:, frame_idx, :].clone().detach()
+        frame_quat_tf = frames.data.target_quat_source.torch[:, frame_idx, :].clone().detach()
 
         if env_id is not None:
             frame_pos_tf = frame_pos_tf[env_id]
@@ -355,9 +367,10 @@ class WorldState:
         """Get USD prim for a body in a specific env. Used internally for init-time
         geometry caching and visualization. Not called per-step."""
         body = self.get_body(body_name)
-        if isinstance(body, XFormPrim):
-            idx = min(env_id, len(body.prims) - 1)
-            return body.prims[idx]
+        if not isinstance(body, AssetBase) and isinstance(body, Asset):
+            prims = self._get_extra_view(body_name).prims
+            idx = min(env_id, len(prims) - 1)
+            return prims[idx]
         prim_path = body.cfg.prim_path
         env_id_str = "env_" + str(env_id)
         prims = sim_utils.find_matching_prims(prim_path)
@@ -367,7 +380,7 @@ class WorldState:
         raise ValueError(f"[WorldState] Prim at path '{prim_path}' not found in scene")
 
     def get_pose(self, body_name: str, is_relative: bool = True, as_matrix: bool = False, env_id: int | None = None) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
-        """Get pose in xyz, wxyz format.
+        """Get pose in xyz, xyzw format (Isaac Lab 3 quaternion convention).
 
         Args:
             env_id: None → (num_envs, 3) and (num_envs, 4), int → (3,) and (4,)
@@ -376,23 +389,25 @@ class WorldState:
         body = self.get_body(body_name)
         if isinstance(body, AssetBase):
             if env_id is not None:
-                pos = body.data.root_pos_w[env_id].clone().detach()
-                quat = body.data.root_quat_w[env_id].clone().detach()
+                pos = body.data.root_pos_w.torch[env_id].clone().detach()
+                quat = body.data.root_quat_w.torch[env_id].clone().detach()
                 if is_relative:
                     pos = pos - self.env.scene.env_origins[env_id]
             else:
-                pos = body.data.root_pos_w.clone().detach()  # (N, 3)
-                quat = body.data.root_quat_w.clone().detach()  # (N, 4)
+                pos = body.data.root_pos_w.torch.clone().detach()  # (N, 3)
+                quat = body.data.root_quat_w.torch.clone().detach()  # (N, 4)
                 if is_relative:
                     pos = pos - self.env.scene.env_origins  # (N, 3)
-        elif isinstance(body, XFormPrim):
-            num_prims = len(body._prim_paths) if hasattr(body, '_prim_paths') else body.count
+        elif isinstance(body, Asset):
+            view = self._get_extra_view(body_name)
+            num_prims = view.count
+            positions, orientations = view.get_world_poses()
+            positions, orientations = positions.torch, orientations.torch
             if env_id is not None:
                 # Clamp index — static extras may have fewer prims than envs
                 idx = min(env_id, num_prims - 1)
-                positions, orientations = body.get_world_poses(indices=[idx])
-                pos = positions[0]
-                quat = orientations[0]
+                pos = positions[idx]
+                quat = orientations[idx]
                 if not isinstance(pos, torch.Tensor):
                     pos = torch.tensor(pos, dtype=torch.float32, device=self.env.device)
                     quat = torch.tensor(quat, dtype=torch.float32, device=self.env.device)
@@ -402,10 +417,9 @@ class WorldState:
                 if is_relative:
                     pos = pos - self.env.scene.env_origins[env_id]
             else:
-                # XFormPrim — get all available poses then map to envs.
+                # Static extra — map the view's poses to envs.
                 # Static extras may have fewer prims than num_envs (e.g., shelf).
                 # In that case, compute relative pose from prim 0 and replicate.
-                positions, orientations = body.get_world_poses()
                 if num_prims >= self.env.num_envs:
                     # One prim per env — straightforward
                     all_pos, all_quat = [], []
@@ -448,19 +462,19 @@ class WorldState:
             return pos, quat
 
     def get_velocity(self, body_name: str, env_id: int | None = None) -> torch.Tensor:
-        """Get velocity for a body. Returns zero velocity for XFormPrim extras.
+        """Get velocity for a body. Returns zero velocity for static extras.
 
         Args:
             env_id: None → (num_envs, 6), int → (6,)
         """
         body = self.get_body(body_name)
-        if isinstance(body, XFormPrim):
+        if not isinstance(body, AssetBase):
             if env_id is None:
                 return torch.zeros(self.env.num_envs, 6, dtype=torch.float32, device=self.env.device)
             return torch.zeros(6, dtype=torch.float32, device=self.env.device)
         if env_id is None:
-            return body.data.root_vel_w.clone().detach()
-        return body.data.root_vel_w[env_id].clone().detach()
+            return body.data.root_vel_w.torch.clone().detach()
+        return body.data.root_vel_w.torch[env_id].clone().detach()
 
     def get_dimensions(self, body: str) -> np.ndarray:
         """Get dimensions from cached local geometry. Returns (3,) np array."""
@@ -556,7 +570,7 @@ class WorldState:
         """
         contact_sensor = get_contact_sensor(self.env.scene, body1, body2)
         if env_id is not None:
-            force_matrix = contact_sensor.data.force_matrix_w[env_id]
+            force_matrix = contact_sensor.data.force_matrix_w.torch[env_id]
             return torch.any(torch.abs(force_matrix) > force_threshold).item()
         else:
             # force_matrix_w documented shape: (num_envs, num_bodies, num_filter_bodies, 3).
@@ -564,7 +578,7 @@ class WorldState:
             # ever returns a different rank — silent shape drift here would
             # collapse the env axis and report cross-env contact (every env in
             # the batch reports True iff any one env has contact).
-            force_matrix = contact_sensor.data.force_matrix_w
+            force_matrix = contact_sensor.data.force_matrix_w.torch
             assert force_matrix.ndim == 4 and force_matrix.shape[-1] == 3, (
                 f"in_contact: expected force_matrix_w shape (N, B, M, 3), "
                 f"got {tuple(force_matrix.shape)}"
@@ -598,7 +612,7 @@ class WorldState:
                 print(f"[WorldState] Batch sensor for '{body}' not found. Available sensors: {available_sensors}. Found '{body}' in contact with: {objects_in_contact}")
             return objects_in_contact
 
-        force_matrix = batch_sensor.data.force_matrix_w[env_id]
+        force_matrix = batch_sensor.data.force_matrix_w.torch[env_id]
         force_above_threshold = torch.abs(force_matrix) > force_threshold
         any_force_per_body = torch.any(force_above_threshold, dim=-1)
         in_contact_mask = torch.any(any_force_per_body, dim=0)
@@ -628,11 +642,11 @@ class WorldState:
         """
         contact_sensor, is_reversed = get_contact_sensor_with_order(self.env.scene, body1, body2)
         if env_id is not None:
-            force_matrix = contact_sensor.data.force_matrix_w[env_id]
+            force_matrix = contact_sensor.data.force_matrix_w.torch[env_id]
             net_force = force_matrix.sum(dim=(0, 1))  # (3,)
         else:
             # (num_envs, num_bodies, num_filter_bodies, 3) → (num_envs, 3)
-            force_matrix = contact_sensor.data.force_matrix_w
+            force_matrix = contact_sensor.data.force_matrix_w.torch
             net_force = force_matrix.sum(dim=(1, 2))  # (N, 3)
 
         if is_reversed:

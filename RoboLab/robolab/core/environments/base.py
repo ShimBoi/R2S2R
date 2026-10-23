@@ -14,6 +14,7 @@ from isaaclab.managers import DatasetExportMode, RecorderManagerBaseCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.utils import configclass
+from isaaclab_physx.physics import PhysxCfg
 
 import robolab.constants
 from robolab.constants import get_output_dir
@@ -162,19 +163,16 @@ class RobolabDefaultEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.use_fabric = True
 
         # PhysX settings
-        self.sim.physx.gpu_temp_buffer_capacity = 2**30
-        self.sim.physx.gpu_heap_capacity = 2**30
-        self.sim.physx.gpu_collision_stack_size = 2**30
-        self.sim.physx.enable_ccd = True
-        self.sim.physx.contact_offset = 0.02
-        self.sim.physx.rest_offset = 0.01
-        self.sim.physx.num_position_iterations = 32
-        self.sim.physx.num_velocity_iterations = 1
-        self.sim.physx.bounce_threshold_velocity = 0.2
-        self.sim.physx.max_depenetration_velocity = 100.0
-        self.sim.physx.solver_type = 1
-        self.sim.physx.num_threads = 4
-        self.sim.physx.relaxation = 0.75
-        self.sim.physx.warm_start = 0.4
-        self.sim.physx.shape_collision_distance = 0.0
-        self.sim.physx.shape_collision_margin = 0.0
+        self.sim.physics = PhysxCfg(
+            gpu_temp_buffer_capacity=2**30,
+            gpu_heap_capacity=2**30,
+            gpu_collision_stack_size=2**30,
+            enable_ccd=True,
+            bounce_threshold_velocity=0.2,
+            solver_type=1,
+        )
+        # Also set under Isaac Lab 2.x, but none of these were PhysxCfg fields there (or are
+        # now), so they never took effect: contact_offset=0.02, rest_offset=0.01,
+        # num_position_iterations=32, num_velocity_iterations=1,
+        # max_depenetration_velocity=100.0, num_threads=4, relaxation=0.75, warm_start=0.4,
+        # shape_collision_distance=0.0, shape_collision_margin=0.0.

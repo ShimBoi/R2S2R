@@ -6,6 +6,7 @@ import os
 import isaaclab.sim.utils as sim_utils
 import isaaclab.utils.math as math_utils
 import robolab.constants
+from robolab.core.utils.env_ids import resolve_env_ids
 import robolab.core.utils.usd_utils as usd_utils
 import torch
 from isaaclab.assets import Articulation, RigidObject
@@ -183,7 +184,9 @@ def sample_pose_uniform(
         Tuple of (positions, orientations, velocities) tensors.
     """
     # get default root state
-    root_states = asset.data.default_root_state[env_ids].clone()
+    root_states = torch.cat(
+        [asset.data.default_root_pose.torch, asset.data.default_root_vel.torch], dim=-1
+    )[env_ids].clone()
 
     # poses
     range_list = [
@@ -300,6 +303,7 @@ def reset_pose_uniform(
             instead of the shared ``pose_range``. Assets placed earlier in the list are
             collision-checked against when placing later ones.
     """
+    env_ids = resolve_env_ids(env, env_ids)
     asset_names = _parse_asset_cfg(asset_cfg)
     sampled_pose_assets = set(asset_names)
 
@@ -368,10 +372,10 @@ def reset_pose_uniform(
                 ))
 
         # set into the physics simulation
-        asset.write_root_pose_to_sim(
-            torch.cat([positions, orientations], dim=-1), env_ids=env_ids
+        asset.write_root_pose_to_sim_index(
+            root_pose=torch.cat([positions, orientations], dim=-1), env_ids=env_ids
         )
-        asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
+        asset.write_root_velocity_to_sim_index(root_velocity=velocities, env_ids=env_ids)
 
 
 def _reset_assets_to_default(
@@ -391,12 +395,12 @@ def _reset_assets_to_default(
         if name not in asset_names_set:
             continue
         # obtain default and deal with the offset for env origins
-        default_root_state = rigid_object.data.default_root_state[env_ids].clone()
-        default_root_state[:, 0:3] += env.scene.env_origins[env_ids]
+        default_root_pose = rigid_object.data.default_root_pose.torch[env_ids].clone()
+        default_root_pose[:, 0:3] += env.scene.env_origins[env_ids]
         # set into the physics simulation
-        rigid_object.write_root_pose_to_sim(default_root_state[:, :7], env_ids=env_ids)
-        rigid_object.write_root_velocity_to_sim(
-            default_root_state[:, 7:], env_ids=env_ids
+        rigid_object.write_root_pose_to_sim_index(root_pose=default_root_pose, env_ids=env_ids)
+        rigid_object.write_root_velocity_to_sim_index(
+            root_velocity=rigid_object.data.default_root_vel.torch[env_ids].clone(), env_ids=env_ids
         )
 
     # Reset articulations that are in the asset list
@@ -404,21 +408,25 @@ def _reset_assets_to_default(
         if name not in asset_names_set:
             continue
         # obtain default and deal with the offset for env origins
-        default_root_state = articulation_asset.data.default_root_state[env_ids].clone()
-        default_root_state[:, 0:3] += env.scene.env_origins[env_ids]
+        default_root_pose = articulation_asset.data.default_root_pose.torch[env_ids].clone()
+        default_root_pose[:, 0:3] += env.scene.env_origins[env_ids]
         # set into the physics simulation
-        articulation_asset.write_root_pose_to_sim(
-            default_root_state[:, :7], env_ids=env_ids
+        articulation_asset.write_root_pose_to_sim_index(
+            root_pose=default_root_pose, env_ids=env_ids
         )
-        articulation_asset.write_root_velocity_to_sim(
-            default_root_state[:, 7:], env_ids=env_ids
+        articulation_asset.write_root_velocity_to_sim_index(
+            root_velocity=articulation_asset.data.default_root_vel.torch[env_ids].clone(),
+            env_ids=env_ids,
         )
         # obtain default joint positions
-        default_joint_pos = articulation_asset.data.default_joint_pos[env_ids].clone()
-        default_joint_vel = articulation_asset.data.default_joint_vel[env_ids].clone()
+        default_joint_pos = articulation_asset.data.default_joint_pos.torch[env_ids].clone()
+        default_joint_vel = articulation_asset.data.default_joint_vel.torch[env_ids].clone()
         # set into the physics simulation
-        articulation_asset.write_joint_state_to_sim(
-            default_joint_pos, default_joint_vel, env_ids=env_ids
+        articulation_asset.write_joint_position_to_sim_index(
+            position=default_joint_pos, env_ids=env_ids
+        )
+        articulation_asset.write_joint_velocity_to_sim_index(
+            velocity=default_joint_vel, env_ids=env_ids
         )
 
     # Reset deformable objects that are in the asset list
@@ -426,8 +434,8 @@ def _reset_assets_to_default(
         if name not in asset_names_set:
             continue
         # obtain default and set into the physics simulation
-        nodal_state = deformable_object.data.default_nodal_state_w[env_ids].clone()
-        deformable_object.write_nodal_state_to_sim(nodal_state, env_ids=env_ids)
+        nodal_state = deformable_object.data.default_nodal_state_w.torch[env_ids].clone()
+        deformable_object.write_nodal_state_to_sim_index(nodal_state, env_ids=env_ids)
 
 
 def _get_all_asset_names(env: ManagerBasedEnv) -> set[str]:
@@ -455,6 +463,7 @@ def reset_pose_to_default(
         env_ids: The environment indices to reset.
         asset_cfg: The asset(s) to reset to default pose. Can be a single asset or list of assets.
     """
+    env_ids = resolve_env_ids(env, env_ids)
     asset_names_set = set(_parse_asset_cfg(asset_cfg))
     _reset_assets_to_default(env, env_ids, asset_names_set)
 
@@ -472,7 +481,9 @@ def reset_pose_to_presets(
     Each preset entry is a list of poses, one per asset in asset_cfg.  Each
     pose is either a 3-tuple ``(x, y, z)`` (orientation taken from the USD
     default) or a 7-tuple ``(x, y, z, qw, qx, qy, qz)`` (explicit
-    orientation in Isaac Lab wxyz convention).
+    orientation, scalar-first). Presets stay scalar-first to match PolaRiS's
+    ``initial_conditions.json``; they are converted to Isaac Lab 3's xyzw
+    convention before being written to sim.
 
     A preset is chosen independently at random for each env being reset,
     unless the ``ROBOLAB_FORCE_PRESET_IDX`` environment variable is set, in
@@ -498,6 +509,7 @@ def reset_pose_to_presets(
             unaffected and takes precedence over this pool when set.
             If None, sampling is uniform over all of ``presets``.
     """
+    env_ids = resolve_env_ids(env, env_ids)
     asset_names = _parse_asset_cfg(asset_cfg)
     sampled_pose_assets = set(asset_names)
 
@@ -528,7 +540,7 @@ def reset_pose_to_presets(
 
     for i, object_name in enumerate(asset_names):
         asset: RigidObject | Articulation = env.scene[object_name]
-        root_states = asset.data.default_root_state[env_ids].clone()
+        default_root_pose = asset.data.default_root_pose.torch[env_ids].clone()
 
         positions = []
         orientations = []
@@ -546,19 +558,24 @@ def reset_pose_to_presets(
             pos = pos + env.scene.env_origins[env_id_int]
             positions.append(pos)
             if len(pose) == 7:
-                ori = torch.tensor(pose[3:7], device=asset.device, dtype=torch.float32)
+                ori = math_utils.convert_quat(
+                    torch.tensor(pose[3:7], device=asset.device, dtype=torch.float32),
+                    to="xyzw",
+                )
             else:
-                ori = root_states[idx, 3:7]
+                ori = default_root_pose[idx, 3:7]
             orientations.append(ori)
 
         positions = torch.stack(positions, dim=0)
         orientations = torch.stack(orientations, dim=0)
-        velocities = torch.zeros_like(root_states[:, 7:13])
-
-        asset.write_root_pose_to_sim(
-            torch.cat([positions, orientations], dim=-1), env_ids=env_ids
+        velocities = torch.zeros(
+            (len(env_ids), 6), device=asset.device, dtype=torch.float32
         )
-        asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
+
+        asset.write_root_pose_to_sim_index(
+            root_pose=torch.cat([positions, orientations], dim=-1), env_ids=env_ids
+        )
+        asset.write_root_velocity_to_sim_index(root_velocity=velocities, env_ids=env_ids)
 
 
 def reset_to_captured_state(
@@ -581,11 +598,13 @@ def reset_to_captured_state(
             "robot_joint_pos": [...], "robot_joint_vel": [...]}. Object positions are
             env-origin-relative, matching WorldState.get_pose(..., is_relative=True)'s
             convention; env_origins is added back before writing to sim, same as every
-            other reset function in this file.
+            other reset function in this file. Quaternions on disk are scalar-first
+            (qw, qx, qy, qz) and are converted to xyzw before being written to sim.
         object_names: Names of the rigid objects to reset from `captured_states["objects"]`.
         robot_name: Name of the robot articulation to reset from `captured_states["robot_joint_pos"]`
             and `captured_states["robot_joint_vel"]`.
     """
+    env_ids = resolve_env_ids(env, env_ids)
     num_states = len(captured_states)
     sample_idx = torch.randint(0, num_states, (len(env_ids),))
 
@@ -601,7 +620,10 @@ def reset_to_captured_state(
             )
             positions.append(pos)
             orientations.append(
-                torch.tensor(row[3:7], device=asset.device, dtype=torch.float32)
+                math_utils.convert_quat(
+                    torch.tensor(row[3:7], device=asset.device, dtype=torch.float32),
+                    to="xyzw",
+                )
             )
             velocities.append(
                 torch.tensor(row[7:13], device=asset.device, dtype=torch.float32)
@@ -609,10 +631,10 @@ def reset_to_captured_state(
         positions = torch.stack(positions, dim=0)
         orientations = torch.stack(orientations, dim=0)
         velocities = torch.stack(velocities, dim=0)
-        asset.write_root_pose_to_sim(
-            torch.cat([positions, orientations], dim=-1), env_ids=env_ids
+        asset.write_root_pose_to_sim_index(
+            root_pose=torch.cat([positions, orientations], dim=-1), env_ids=env_ids
         )
-        asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
+        asset.write_root_velocity_to_sim_index(root_velocity=velocities, env_ids=env_ids)
 
     robot: Articulation = env.scene[robot_name]
     joint_pos, joint_vel = [], []
@@ -630,7 +652,8 @@ def reset_to_captured_state(
         )
     joint_pos = torch.stack(joint_pos, dim=0)
     joint_vel = torch.stack(joint_vel, dim=0)
-    robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+    robot.write_joint_position_to_sim_index(position=joint_pos, env_ids=env_ids)
+    robot.write_joint_velocity_to_sim_index(velocity=joint_vel, env_ids=env_ids)
 
 
 ########################################################

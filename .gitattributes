@@ -1,0 +1,14 @@
+# Git LFS objects committed as pointers (vendored RoboLab / PolaRiS-Hub assets).
+PolaRiS-Hub/move_latte_cup/assets/cuttingboard_eval/gaussian.ply filter=lfs diff=lfs merge=lfs -text
+PolaRiS-Hub/move_latte_cup/assets/cuttingboard_eval/mesh.glb filter=lfs diff=lfs merge=lfs -text
+PolaRiS-Hub/move_latte_cup/assets/cuttingboard_eval/mesh.ply filter=lfs diff=lfs merge=lfs -text
+PolaRiS-Hub/move_latte_cup/assets/cuttingboard_eval/mesh.usd filter=lfs diff=lfs merge=lfs -text
+PolaRiS-Hub/move_latte_cup/assets/cuttingboard_eval/textures/mesh_texture0.png filter=lfs diff=lfs merge=lfs -text
+PolaRiS-Hub/move_latte_cup/assets/latteartcup_eval/gaussian.ply filter=lfs diff=lfs merge=lfs -text
+PolaRiS-Hub/move_latte_cup/assets/latteartcup_eval/mesh.glb filter=lfs diff=lfs merge=lfs -text
+PolaRiS-Hub/move_latte_cup/assets/latteartcup_eval/mesh.ply filter=lfs diff=lfs merge=lfs -text
+PolaRiS-Hub/move_latte_cup/assets/latteartcup_eval/mesh.usd filter=lfs diff=lfs merge=lfs -text
+PolaRiS-Hub/move_latte_cup/assets/latteartcup_eval/textures/mesh_texture0.png filter=lfs diff=lfs merge=lfs -text
+PolaRiS-Hub/move_latte_cup/assets/princeton_env_1/mesh.usd filter=lfs diff=lfs merge=lfs -text
+PolaRiS-Hub/move_latte_cup/assets/princeton_env_1/splat.ply filter=lfs diff=lfs merge=lfs -text
+RoboLab/assets/scenes/mug_on_cutting_board.usda filter=lfs diff=lfs merge=lfs -text

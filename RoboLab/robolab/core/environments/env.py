@@ -17,6 +17,7 @@ from isaaclab.envs import ManagerBasedRLEnv
 
 from robolab.core.logging.recorder_manager import RobolabRecorderManager
 from robolab.core.world.world_state import get_world
+from robolab.core.utils.env_ids import resolve_env_ids
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ class RobolabEnv(ManagerBasedRLEnv):
         3. Export its recording data
         4. Skip the actual reset (env holds its final state)
         """
+        env_ids = resolve_env_ids(self, env_ids)
         if not self._has_stepped:
             # Initial reset — let all envs reset normally
             super()._reset_idx(env_ids)

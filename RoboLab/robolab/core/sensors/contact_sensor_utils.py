@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import torch
-from isaaclab.sensors import ContactSensor, ContactSensorCfg
+from isaaclab.sensors import BaseContactSensor, ContactSensor, ContactSensorCfg
 
 
 def create_contact_sensor_cfg(entity_1, entity_2, update_period=0.0, history_length=6, debug_vis=False):
@@ -99,7 +99,7 @@ def get_contact_sensors(scene):
     """
     contact_sensors = {
         name: sensor for name, sensor in scene.sensors.items()
-        if isinstance(sensor, ContactSensor)
+        if isinstance(sensor, BaseContactSensor)
     }
     return contact_sensors
 

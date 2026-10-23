@@ -177,6 +177,7 @@ class NoAutoResetManagerBasedRLEnv:
         if self._save_end_state_path and save_trigger_now is not None and save_trigger_now.any():
             import json
 
+            from isaaclab.utils.math import convert_quat
             from robolab.core.world.world_state import get_world
 
             world = get_world(self)
@@ -194,7 +195,9 @@ class NoAutoResetManagerBasedRLEnv:
                 for name in capture_names:
                     pos, quat = world.get_pose(name, is_relative=True, env_id=eid)
                     vel = world.get_velocity(name, env_id=eid)
-                    objects[name] = pos.tolist() + quat.tolist() + vel.tolist()
+                    # Stored scalar-first (qw, qx, qy, qz), the format reset_to_captured_state reads.
+                    quat_wxyz = convert_quat(quat, to="wxyz")
+                    objects[name] = pos.tolist() + quat_wxyz.tolist() + vel.tolist()
                 row = {
                     "objects": objects,
                     "robot_joint_pos": world.get_joint_positions(
