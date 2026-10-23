@@ -172,7 +172,8 @@ account needed for read access). `bootstrap.sh`'s `model` stage automates this e
 the exact path configs expect); by hand it's:
 
 ```bash
-gsutil -m cp -r gs://openpi-assets/checkpoints/pi05_droid_jointpos RLinf/model/pi05_droid_jointpos.raw
+mkdir -p RLinf/model/pi05_droid_jointpos.raw
+gsutil -m cp -r "gs://openpi-assets/checkpoints/pi05_droid_jointpos/*" RLinf/model/pi05_droid_jointpos.raw/
 git clone --depth 1 https://github.com/RLinf/openpi /tmp/openpi-src   # convert script isn't in the installed wheel
 RLinf/.venv/bin/python /tmp/openpi-src/examples/convert_jax_model_to_pytorch.py \
     --checkpoint_dir RLinf/model/pi05_droid_jointpos.raw \
@@ -219,8 +220,10 @@ Inside the container (`bash enter_container.sh` drops you into a shell already `
 `RLinf/` with the venv active):
 
 ```bash
-# Fast, no-GPU sanity check of the discovery package (import-light by design):
-uv run pytest tests/unit_tests/test_discovery_*.py -q
+# Fast, no-GPU sanity check of the discovery package (import-light by design).
+# Use the venv's python, NOT `uv run`: uv run re-syncs the venv against pyproject.toml's
+# torch==2.6.0 override and silently undoes the torch 2.7.0+cu128 install.
+python -m pytest tests/unit_tests/test_discovery_*.py -q
 
 # Cheapest real env-construction smoke test (skips Ray/the full trainer stack):
 python -m rlinf.envs.isaaclab.tasks.robolab_task

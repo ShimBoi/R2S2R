@@ -28,6 +28,9 @@ CUDA_DIR="${CUDA_DIR:-$WORKSPACE_ROOT/cuda}"
 MODEL_GCS_PATH="${MODEL_GCS_PATH:-gs://openpi-assets/checkpoints/pi05_droid_jointpos}"
 MODEL_CONFIG_NAME="${MODEL_CONFIG_NAME:-pi05_droid_jointpos}"
 OPENPI_GIT_URL="${OPENPI_GIT_URL:-https://github.com/RLinf/openpi}"
+# RLinf/IsaacLab HEAD moved to torch 2.11 (4246b6b4), which conflicts with openpi's torch 2.7.1 pin
+# and has no prebuilt flash-attn wheel; this is the last commit on torch 2.7.0+cu128.
+ISAACLAB_GIT_REF="${ISAACLAB_GIT_REF:-91fbc18d}"
 
 STAGES=(sandbox cuda vulkan-icd robolab isaac-sim polaris-hub install model enter-script)
 
@@ -47,6 +50,7 @@ Env overrides:
   POLARIS_HUB_HF_REPO (default $POLARIS_HUB_HF_REPO)
   SANDBOX_DIR (default $SANDBOX_DIR), CUDA_DIR (default $CUDA_DIR)
   MODEL_GCS_PATH (default $MODEL_GCS_PATH), MODEL_CONFIG_NAME (default $MODEL_CONFIG_NAME)
+  ISAACLAB_GIT_REF (default $ISAACLAB_GIT_REF)
 
 Not covered here -- see SETUP.md's manual section:
   .env (OPENAI_API_KEY).
@@ -167,14 +171,33 @@ stage_install() {
         echo "Sandbox not found at $SANDBOX_DIR -- run the 'sandbox' stage first." >&2
         exit 1
     fi
-    if [ -f "$RLINF_DIR/.venv/bin/python" ]; then
-        log "$RLINF_DIR/.venv already exists, skipping (delete it to force a reinstall)"
+    if [ -f "$RLINF_DIR/.venv/.bootstrap_install_done" ]; then
+        log "$RLINF_DIR/.venv already installed, skipping (delete it to force a reinstall)"
         return 0
     fi
+    # install.sh clones RLinf/IsaacLab at HEAD unless ISAAC_LAB_PATH points at an existing checkout.
+    local isaaclab_dir="$RLINF_DIR/.venv/isaaclab"
+    if [ ! -d "$isaaclab_dir/.git" ]; then
+        git clone https://github.com/RLinf/IsaacLab "$isaaclab_dir"
+    fi
+    git -C "$isaaclab_dir" checkout -q "$ISAACLAB_GIT_REF"
+    log "IsaacLab pinned to $ISAACLAB_GIT_REF"
+    apptainer exec --nv \
+        --bind "$WORKSPACE_ROOT:$WORKSPACE_ROOT" \
+        --env ISAAC_LAB_PATH="$isaaclab_dir" \
+        "$SANDBOX_DIR/" \
+        bash -c "cd '$RLINF_DIR' && bash requirements/install.sh embodied --model openpi --env isaaclab --no-root"
+    # install.sh's flash-attn step runs `uv pip install` inside the repo, so pyproject.toml's
+    # torch==2.6.0 override drags torch back to 2.6.0+cu126 -- no Blackwell (sm_120) kernels and
+    # ABI-mismatched with the torch-2.7 flash-attn wheel. Restore Isaac Lab's torch from outside
+    # the project dir (so the override doesn't apply).
+    log "restoring torch 2.7.0+cu128 (see comment in stage_install)"
     apptainer exec --nv \
         --bind "$WORKSPACE_ROOT:$WORKSPACE_ROOT" \
         "$SANDBOX_DIR/" \
-        bash -c "cd '$RLINF_DIR' && bash requirements/install.sh embodied --model openpi --env isaaclab"
+        bash -c "cd / && uv pip install --python '$RLINF_DIR/.venv/bin/python' \
+            --index-url https://download.pytorch.org/whl/cu128 torch==2.7.0 torchvision==0.22.0"
+    touch "$RLINF_DIR/.venv/.bootstrap_install_done"
 }
 
 stage_model() {
@@ -195,9 +218,17 @@ stage_model() {
 
     mkdir -p "$RLINF_DIR/model"
     local raw_dir="${final_dir}.raw"
-    rm -rf "$raw_dir"
-    log "downloading raw JAX checkpoint from $MODEL_GCS_PATH"
-    gsutil -m cp -r "$MODEL_GCS_PATH" "$raw_dir"
+    if [ -f "$raw_dir/.download_done" ]; then
+        log "raw checkpoint already downloaded at $raw_dir, skipping download"
+    else
+        rm -rf "$raw_dir"
+        mkdir -p "$raw_dir"
+        log "downloading raw JAX checkpoint from $MODEL_GCS_PATH"
+        # Copy the contents into a pre-created dir: `gsutil -m cp -r <dir> <missing-dest>` races and
+        # fails with "Destination URL must name a directory".
+        gsutil -m cp -r "$MODEL_GCS_PATH/*" "$raw_dir/"
+        touch "$raw_dir/.download_done"
+    fi
 
     local openpi_src="$WORKSPACE_ROOT/.openpi-src"
     if [ ! -d "$openpi_src" ]; then
@@ -208,10 +239,22 @@ stage_model() {
     fi
 
     log "converting to PyTorch format at $final_dir"
-    "$RLINF_DIR/.venv/bin/python" "$openpi_src/examples/convert_jax_model_to_pytorch.py" \
+    # pi05_droid_jointpos is defined in RLinf's own openpi config table
+    # (rlinf/models/embodiment/openpi/dataconfig), not in openpi's, so route the script's
+    # get_config() lookup through RLinf's table first.
+    PYTHONPATH="$RLINF_DIR${PYTHONPATH:+:$PYTHONPATH}" "$RLINF_DIR/.venv/bin/python" - \
+        "$openpi_src/examples/convert_jax_model_to_pytorch.py" \
         --checkpoint_dir "$raw_dir" \
         --config_name "$MODEL_CONFIG_NAME" \
-        --output_path "$final_dir"
+        --output_path "$final_dir" <<'PY'
+import runpy, sys
+import openpi.training.config as openpi_config
+from rlinf.models.embodiment.openpi.dataconfig import _CONFIGS_DICT
+_orig_get_config = openpi_config.get_config
+openpi_config.get_config = lambda name: _CONFIGS_DICT[name] if name in _CONFIGS_DICT else _orig_get_config(name)
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+PY
     cp -r "$raw_dir/assets" "$final_dir/" 2>/dev/null || true
     rm -rf "$raw_dir"
     log "done: $final_dir"
@@ -223,6 +266,8 @@ stage_enter_script() {
     cat > "$out" <<EOF
 #!/bin/bash
 # Generated by RLinf/setup/bootstrap.sh -- this machine's equivalent of enter_robolab.sh.
+# No args: interactive shell. With args: runs that command inside, e.g.
+#   bash enter_container.sh python -m pytest tests/unit_tests/test_discovery_*.py -q
 apptainer exec --nv \\
     --bind $WORKSPACE_ROOT:$WORKSPACE_ROOT \\
     --bind $WORKSPACE_ROOT/vulkan_icd/nvidia_icd.json:/etc/vulkan/icd.d/nvidia_icd.json \\
@@ -245,8 +290,8 @@ apptainer exec --nv \\
         export VIRTUAL_ENV=$RLINF_DIR/.venv
         export LD_LIBRARY_PATH=/.singularity.d/libs:/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH
         cd $RLINF_DIR
-        exec bash --norc --noprofile
-    '
+        if [ \$# -gt 0 ]; then exec "\$@"; else exec bash --norc --noprofile; fi
+    ' enter_container "\$@"
 EOF
     chmod +x "$out"
     log "wrote $out -- enter the project with: bash $out"

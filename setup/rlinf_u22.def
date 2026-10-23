@@ -3,6 +3,8 @@ From: ubuntu:22.04
 
 %post
     export DEBIAN_FRONTEND=noninteractive
+    # Unprivileged --fakeroot builds (no /etc/subuid mapping, e.g. TACC) can't drop to the _apt user.
+    echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99-no-sandbox
     apt-get update && apt-get install -y \
         git git-lfs \
         curl wget \
@@ -12,11 +14,19 @@ From: ubuntu:22.04
         libssl-dev libffi-dev zlib1g-dev \
         libgl1-mesa-glx libgles2-mesa libegl1 \
         libvulkan1 libxrandr2 libxinerama1 libxcursor1 libxi6 \
+        libxt6 libglu1-mesa \
         ffmpeg unzip zip \
         ca-certificates software-properties-common \
+        linux-libc-dev patchelf lsb-release \
+        libavutil-dev libavcodec-dev libavformat-dev libavdevice-dev \
+        libibverbs-dev ncurses-term mesa-utils libosmesa6-dev freeglut3-dev \
+        libglew-dev libgles2 libglvnd-dev libglfw3-dev libgl1-mesa-dev \
+        libglib2.0-0 libsm6 libxext6 libxrender-dev libxrandr-dev libxinerama-dev \
+        libxcursor-dev libxi-dev libaio-dev libgomp1 libexpat1 libfontconfig1-dev \
+        libpython3-stdlib imagemagick libmagickwand-dev vulkan-tools mesa-vulkan-drivers \
         && rm -rf /var/lib/apt/lists/*
-
-    apt-get install -y libxt6 libglu1-mesa
+    # ^ second half mirrors requirements/embodied/sys_deps.sh, so install.sh can run with --no-root
+    #   (there's no sudo inside the sandbox).
 
     # Make python3.11 the default python/python3
     update-alternatives --install /usr/bin/python  python  /usr/bin/python3.11 1

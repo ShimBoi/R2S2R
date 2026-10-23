@@ -100,6 +100,15 @@ Fix: `LD_PRELOAD` the shim: `gcc -shared -fPIC -o setup/libmalloc_hook_shim.so
 setup/glibc_malloc_hook_shim.c`, then `export LD_PRELOAD=$(pwd)/setup/libmalloc_hook_shim.so`.
 Only needed if you hit this exact error.
 
+**Segfault in `librtx.scenedb.plugin.so` (via `carbOnPluginShutdown` / `UsdManager::createHydraEngine`)
+right after the RTX renderer starts -- even a bare `SimulationApp({"headless": True})` crashes**
+Cause: host NVIDIA driver too new for Isaac Sim 5.1 (validated on 580.65.06; reported broken on
+595.x, and reproduced here on 615.71.09 on Stampede3's `amd-rtx` RTX PRO 6000 Blackwell nodes).
+Not fixed by single-GPU `CUDA_VISIBLE_DEVICES`, restricting the Vulkan ICD, or binding extra
+driver libs into the container.
+Fix: run on a node whose driver is in the 580.x branch (check `nvidia-smi` first). Can't be
+fixed from inside the container.
+
 **A freshly-allocated node is extremely slow on the first heavy Python import (minutes for
 `import torch`)**
 Cause: cold local page cache — even if the same files were read on a *different* node recently,
