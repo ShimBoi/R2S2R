@@ -65,8 +65,8 @@ def main():
 
         centroid_w = np.array(cache.ComputeWorldBound(prim).ComputeCentroid())
         asset = env.scene[name]
-        root_p = asset.data.root_pos_w[0].detach().cpu().numpy()
-        root_q = asset.data.root_quat_w[0]  # (w, x, y, z), stays on device
+        root_p = asset.data.root_pos_w.torch[0].detach().cpu().numpy()
+        root_q = asset.data.root_quat_w.torch[0]  # (w, x, y, z), stays on device
 
         offset_local = math_utils.quat_apply_inverse(
             root_q, torch.tensor(centroid_w - root_p, device=root_q.device).float()

@@ -331,7 +331,8 @@ def _get_usd_objects_info_cached(usd_path: str) -> tuple:
             rot = norm_mat.ExtractRotation().GetQuat()
         else:
             rot = Gf.Quatd(1, 0, 0, 0)
-        rot_quat = (rot.GetReal(), rot.GetImaginary()[0], rot.GetImaginary()[1], rot.GetImaginary()[2])
+        # xyzw, Isaac Lab 3's quaternion convention (feeds InitialStateCfg.rot directly).
+        rot_quat = (rot.GetImaginary()[0], rot.GetImaginary()[1], rot.GetImaginary()[2], rot.GetReal())
 
         object_info = {
             'name': name,

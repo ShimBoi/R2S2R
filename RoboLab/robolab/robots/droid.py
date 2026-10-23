@@ -31,7 +31,7 @@ from robolab.constants import ROBOTS_DIR
 #   - examples/run_abs_ik_demo.py (converts eef_frame targets → base_link IK actions)
 # Kept here so all code agrees on what eef_frame is.
 EEF_OFFSET_POS: tuple[float, float, float] = (0.0, 0.0, 0.0)
-EEF_OFFSET_ROT: tuple[float, float, float, float] = (0.5, -0.5, 0.5, -0.5)
+EEF_OFFSET_ROT: tuple[float, float, float, float] = (-0.5, 0.5, -0.5, 0.5)  # xyzw
 
 _frame_marker_cfg = FRAME_MARKER_CFG.replace(prim_path="/Visuals/TF")
 _frame_marker_cfg.markers["frame"].scale = (0.05, 0.05, 0.05)
@@ -52,7 +52,7 @@ _WRIST_CAM = TiledCameraCfg(
         vertical_aperture=3.024,
     ),
     offset=TiledCameraCfg.OffsetCfg(
-        pos=(0.011, -0.031, -0.074), rot=(-0.420, 0.570, 0.576, -0.409), convention="opengl"
+        pos=(0.011, -0.031, -0.074), rot=(0.570, 0.576, -0.409, -0.420), convention="opengl"
     ),
 )
 
@@ -78,7 +78,7 @@ class DroidCfg:
         ),
         init_state=ArticulationCfg.InitialStateCfg(
             pos=(0, 0, 0),
-            rot=(1, 0, 0, 0),
+            rot=(0, 0, 0, 1),
             joint_pos={
                 "panda_joint1": 0.0,
                 # "panda_joint2": -1 / 5 * np.pi,
@@ -196,7 +196,7 @@ def arm_joint_pos(
     joint_indices = [
         i for i, name in enumerate(robot.data.joint_names) if name in joint_names
     ]
-    joint_pos = robot.data.joint_pos[:, joint_indices]
+    joint_pos = robot.data.joint_pos.torch[:, joint_indices]
     return joint_pos
 
 
@@ -210,7 +210,7 @@ def gripper_pos(
     joint_indices = [
         i for i, name in enumerate(robot.data.joint_names) if name in joint_names
     ]
-    joint_pos = robot.data.joint_pos[:, joint_indices]
+    joint_pos = robot.data.joint_pos.torch[:, joint_indices]
 
     # rescale
     joint_pos = joint_pos / (np.pi / 4)
@@ -227,33 +227,33 @@ def ee_pos(
     ee_body_name = "base_link"  # Robotiq gripper base link
     body_idx = robot.data.body_names.index(ee_body_name)
     # Return position (shape: [num_envs, 3])
-    return robot.data.body_pos_w[:, body_idx, :] - env.scene.env_origins[:, 0:3]
+    return robot.data.body_pos_w.torch[:, body_idx, :] - env.scene.env_origins[:, 0:3]
 
 
 def ee_quat(
     env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ):
-    """Returns the end effector orientation as quaternion (w, x, y, z) in the world frame."""
+    """Returns the end effector orientation as quaternion (x, y, z, w) in the world frame."""
     robot = env.scene[asset_cfg.name]
     # Get the body index for the end effector link
     ee_body_name = "base_link"  # Robotiq gripper base link
     body_idx = robot.data.body_names.index(ee_body_name)
     # Return quaternion (shape: [num_envs, 4])
-    return robot.data.body_quat_w[:, body_idx, :]
+    return robot.data.body_quat_w.torch[:, body_idx, :]
 
 
 def eef_pos(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("frames")):
     """Returns the eef_frame position (x, y, z) in the env-local frame."""
     frames = env.scene[asset_cfg.name]
     idx = frames.data.target_frame_names.index("eef_frame")
-    return frames.data.target_pos_w[:, idx, :] - env.scene.env_origins[:, 0:3]
+    return frames.data.target_pos_w.torch[:, idx, :] - env.scene.env_origins[:, 0:3]
 
 
 def eef_quat(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("frames")):
-    """Returns the eef_frame orientation as quaternion (w, x, y, z) in the world frame."""
+    """Returns the eef_frame orientation as quaternion (x, y, z, w) in the world frame."""
     frames = env.scene[asset_cfg.name]
     idx = frames.data.target_frame_names.index("eef_frame")
-    return frames.data.target_quat_w[:, idx, :]
+    return frames.data.target_quat_w.torch[:, idx, :]
 
 ########################################################
 # Actions
@@ -325,7 +325,7 @@ class DroidIKActionCfg:
     Note:
         if self.cfg.command_type == "position", action_dim = 3, (x, y, z)
         if self.cfg.command_type == "pose" and self.cfg.use_relative_mode, action_dim = 6, (dx, dy, dz, droll, dpitch, dyaw)
-        if self.cfg.command_type == "pose" and not self.cfg.use_relative_mode, action_dim = 7, (x, y, z, qw, qx, qy, qz)
+        if self.cfg.command_type == "pose" and not self.cfg.use_relative_mode, action_dim = 7, (x, y, z, qx, qy, qz, qw)
     """
     arm_action = DifferentialInverseKinematicsActionCfg(
         asset_name="robot",
@@ -354,7 +354,7 @@ class DroidRelIKActionCfg:
     Note:
         if self.cfg.command_type == "position", action_dim = 3, (x, y, z)
         if self.cfg.command_type == "pose" and self.cfg.use_relative_mode, action_dim = 6, (dx, dy, dz, droll, dpitch, dyaw)
-        if self.cfg.command_type == "pose" and not self.cfg.use_relative_mode, action_dim = 7, (x, y, z, qw, qx, qy, qz)
+        if self.cfg.command_type == "pose" and not self.cfg.use_relative_mode, action_dim = 7, (x, y, z, qx, qy, qz, qw)
     """
     arm_action = DifferentialInverseKinematicsActionCfg(
         asset_name="robot",
@@ -364,7 +364,7 @@ class DroidRelIKActionCfg:
         scale=0.5,
         body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(
             pos=[0.0, 0.0, 0.0],
-            # rot=(0.5, -0.5, 0.5, -0.5),  # Match eef_frame: rotates base_link to the EE control frame.
+            # rot=(-0.5, 0.5, -0.5, 0.5),  # Match eef_frame: rotates base_link to the EE control frame.
         ),
         # Robotiq 2F-85 max height base flange -> fingertip is 162.8mm (per Robotiq spec).
         # Uncomment to control the fingertip plane instead of the base flange.

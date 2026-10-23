@@ -19,36 +19,36 @@ def get_state(env, env_id=0, is_relative=True):
     # articulations
     for asset_name, articulation in env._articulations.items():
         asset_state = dict()
-        pos = articulation.data.root_pos_w[env_id].clone()
-        quat = articulation.data.root_quat_w[env_id].clone()
+        pos = articulation.data.root_pos_w.torch[env_id].clone()
+        quat = articulation.data.root_quat_w.torch[env_id].clone()
         asset_state["pose"] = torch.cat([pos, quat], dim=0)
         if is_relative:
             asset_state["pose"][:3] -= env.env_origins[env_id]
-        asset_state["velocity"] = articulation.data.root_vel_w[env_id].clone()
+        asset_state["velocity"] = articulation.data.root_vel_w.torch[env_id].clone()
         asset_state["joint_names"] = articulation.data.joint_names
-        asset_state["joint_position"] = articulation.data.joint_pos[env_id].clone()
-        asset_state["joint_velocity"] = articulation.data.joint_vel[env_id].clone()
+        asset_state["joint_position"] = articulation.data.joint_pos.torch[env_id].clone()
+        asset_state["joint_velocity"] = articulation.data.joint_vel.torch[env_id].clone()
         asset_state["type"] = "articulation"
         state[asset_name] = asset_state
     # deformable objects
     for asset_name, deformable_object in env._deformable_objects.items():
         asset_state = dict()
-        asset_state["nodal_position"] = deformable_object.data.nodal_pos_w[env_id].clone()
+        asset_state["nodal_position"] = deformable_object.data.nodal_pos_w.torch[env_id].clone()
         if is_relative:
             asset_state["nodal_position"][:, :3] -= env.env_origins[env_id]
-        asset_state["nodal_velocity"] = deformable_object.data.nodal_vel_w[env_id].clone()
+        asset_state["nodal_velocity"] = deformable_object.data.nodal_vel_w.torch[env_id].clone()
         asset_state["type"] = "deformable"
         state[asset_name] = asset_state
     # rigid objects
     state["rigid_object"] = dict()
     for asset_name, rigid_object in env._rigid_objects.items():
         asset_state = dict()
-        pos = rigid_object.data.root_pos_w[env_id].clone()
-        quat = rigid_object.data.root_quat_w[env_id].clone()
+        pos = rigid_object.data.root_pos_w.torch[env_id].clone()
+        quat = rigid_object.data.root_quat_w.torch[env_id].clone()
         asset_state["pose"] = torch.cat([pos, quat], dim=0)
         if is_relative:
             asset_state["pose"][:3] -= env.env_origins[env_id]
-        asset_state["velocity"] = rigid_object.data.root_vel_w[env_id].clone()
+        asset_state["velocity"] = rigid_object.data.root_vel_w.torch[env_id].clone()
         asset_state["type"] = "rigid_object"
         state[asset_name] = asset_state
     return state
@@ -90,8 +90,8 @@ def state_logging(
     current_time = env.elapsed_time if hasattr(env, 'elapsed_time') else time.time()
 
     # Process all environments if none specified
-    if env_ids is None:
-        env_ids = list(range(env.num_envs))
+    if env_ids is None or isinstance(env_ids, slice):
+        env_ids = list(range(env.num_envs))[env_ids or slice(None)]
 
     for env_id in env_ids:
         env_key = f"env_{env_id}"

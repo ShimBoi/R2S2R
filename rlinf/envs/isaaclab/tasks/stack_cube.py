@@ -79,9 +79,7 @@ class IsaaclabStackCubeEnv(IsaaclabBaseEnv):
         instruction = [self.task_description] * self.num_envs
         wrist_image = obs["policy"]["wrist_cam"]
         table_image = obs["policy"]["table_cam"]
-        quat = obs["policy"]["eef_quat"][
-            :, [1, 2, 3, 0]
-        ]  # In isaaclab, quat is wxyz not like libero
+        quat = obs["policy"]["eef_quat"]  # Isaac Lab 3 quats are xyzw, as libero expects
         states = torch.concatenate(
             [
                 obs["policy"]["eef_pos"],

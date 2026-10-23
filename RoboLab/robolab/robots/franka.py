@@ -101,7 +101,7 @@ class FrankaCfg:
                 name="contact_frame",
                 offset=OffsetCfg(
                     pos=[0.0, 0.0, 0.1034],
-                    rot=[0.0, 0.0, 0.0, 1.0],
+                    rot=[0.0, 0.0, 1.0, 0.0],
                 ),
             ),
             FrameTransformerCfg.FrameCfg(
@@ -109,7 +109,7 @@ class FrankaCfg:
                 name="acronym_frame",
                 offset=OffsetCfg(
                     pos=[0.0, 0.0, 0.0],
-                    rot=[0.70711, 0.0, 0.0, -0.70711],
+                    rot=[0.0, 0.0, -0.70711, 0.70711],
                 ),
             ),
             FrameTransformerCfg.FrameCfg(
@@ -151,21 +151,21 @@ class FrankaCfg:
 
 def ee_frame_pos(env: ManagerBasedRLEnv, frames_cfg: SceneEntityCfg = SceneEntityCfg("frames")) -> torch.Tensor:
     frames: FrameTransformer = env.scene[frames_cfg.name]
-    ee_frame_pos = frames.data.target_pos_w[:, 0, :] - env.scene.env_origins[:, 0:3]
+    ee_frame_pos = frames.data.target_pos_w.torch[:, 0, :] - env.scene.env_origins[:, 0:3]
 
     return ee_frame_pos
 
 
 def ee_frame_quat(env: ManagerBasedRLEnv, frames_cfg: SceneEntityCfg = SceneEntityCfg("frames")) -> torch.Tensor:
     frames: FrameTransformer = env.scene[frames_cfg.name]
-    ee_frame_quat = frames.data.target_quat_w[:, 0, :]
+    ee_frame_quat = frames.data.target_quat_w.torch[:, 0, :]
 
     return ee_frame_quat
 
 
 def gripper_pos(env: ManagerBasedRLEnv, robot_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     robot: Articulation = env.scene[robot_cfg.name]
-    finger_joint_1 = robot.data.joint_pos[:, -1].clone().unsqueeze(1)
-    finger_joint_2 = -1 * robot.data.joint_pos[:, -2].clone().unsqueeze(1)
+    finger_joint_1 = robot.data.joint_pos.torch[:, -1].clone().unsqueeze(1)
+    finger_joint_2 = -1 * robot.data.joint_pos.torch[:, -2].clone().unsqueeze(1)
 
     return torch.cat((finger_joint_1, finger_joint_2), dim=1)

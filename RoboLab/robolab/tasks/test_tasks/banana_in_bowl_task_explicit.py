@@ -29,7 +29,7 @@ class BananaBowlTableOakScene:
         spawn=None,
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=(0.35, 0.19, 0.08),
-            rot=(1.0, 0.0, 0.0, 0.0),
+            rot=(0.0, 0.0, 0.0, 1.0),
         )
     )
     bowl = RigidObjectCfg(
@@ -37,7 +37,7 @@ class BananaBowlTableOakScene:
         spawn=None,
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=(0.33, -0.1, 0.11),
-            rot=(0.67, -0.74, 0.0, 0.0),
+            rot=(-0.74, 0.0, 0.0, 0.67),
         )
     )
 

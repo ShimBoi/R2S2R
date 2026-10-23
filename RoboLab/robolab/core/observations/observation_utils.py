@@ -59,7 +59,7 @@ def generate_image_obs_from_cameras(camera_cfgs: List[Any] | Any):
                 # if hasattr(attr_value, 'prim_path'):
                     camera_name = attr_name
                     obs_terms[camera_name] = ObsTerm(
-                        func=mdp.observations.image,
+                        func=mdp.image_rgb,
                         params={
                             "sensor_cfg": SceneEntityCfg(camera_name),
                             "data_type": "rgb",
