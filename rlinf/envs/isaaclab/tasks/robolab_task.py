@@ -49,6 +49,13 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             
             from isaaclab.app import AppLauncher
             sim_app = AppLauncher(headless=True, enable_cameras=True).app
+            if os.environ.get("R2S2R_CARB_SETTINGS"):
+                import json
+
+                import carb
+
+                for k, v in json.loads(os.environ["R2S2R_CARB_SETTINGS"]).items():
+                    carb.settings.get_settings().set(k, v)
 
             from isaaclab.envs import ManagerBasedRLEnv
             from robolab.core.environments.config import parse_env_cfg
@@ -60,7 +67,11 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             os.environ["ROBOLAB_EVAL_ONLY"] = "1" if bool(getattr(self.cfg, "eval_only", False)) else "0"
 
             task_file = getattr(self.cfg.init_params, "task_file", None)
-            auto_register_droid_envs(task=task_file, cameras=WRIST_POLARIS)
+            auto_register_droid_envs(
+                task=task_file,
+                cameras=WRIST_POLARIS,
+                viewport_camera=bool(getattr(self.cfg.init_params, "viewport_camera", False)),
+            )
 
             isaac_env_cfg = parse_env_cfg(
                 self.isaaclab_env_id,

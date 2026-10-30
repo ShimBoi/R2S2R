@@ -27,7 +27,7 @@ The columns are:
 
 """
 def auto_register_droid_envs(task_dirs=DEFAULT_TASK_SUBFOLDERS, lighting_intensity=None, task=None, cameras=None,
-                             randomize_background=False, background_seed=None):
+                             randomize_background=False, background_seed=None, viewport_camera=True):
     """Automatically discover and register tasks.
 
     Args:
@@ -45,6 +45,8 @@ def auto_register_droid_envs(task_dirs=DEFAULT_TASK_SUBFOLDERS, lighting_intensi
               background; assignments are reproducible when ``background_seed`` is provided.
         background_seed: Seed for reproducible per-task background sampling. Ignored if
               ``randomize_background`` is False.
+        viewport_camera: If False, omit the viewport camera (and its ``viewport_cam`` obs group).
+              It is only used for video in robolab.eval; every scene camera costs an RTX render.
     """
     from robolab.core.environments.factory import auto_discover_and_create_cfgs
     from robolab.core.observations.observation_utils import generate_image_obs_from_cameras, generate_obs_cfg
@@ -66,10 +68,10 @@ def auto_register_droid_envs(task_dirs=DEFAULT_TASK_SUBFOLDERS, lighting_intensi
     ImageObsCfg = generate_image_obs_from_cameras(cameras)
     ViewportCameraCfg = generate_image_obs_from_cameras([EgocentricMirroredCameraCfg])
 
-    ObservationCfg = generate_obs_cfg({
-        "image_obs": ImageObsCfg(),
-        "proprio_obs": ProprioceptionObservationCfg(),
-        "viewport_cam": ViewportCameraCfg()})
+    obs_groups = {"image_obs": ImageObsCfg(), "proprio_obs": ProprioceptionObservationCfg()}
+    if viewport_camera:
+        obs_groups["viewport_cam"] = ViewportCameraCfg()
+    ObservationCfg = generate_obs_cfg(obs_groups)
 
     # WristCameraCfg is robot-mounted (wrist_cam is already attached via DroidCfg).
     # Including it as a scene mixin puts wrist_cam before robot in dataclass field
@@ -106,7 +108,7 @@ def auto_register_droid_envs(task_dirs=DEFAULT_TASK_SUBFOLDERS, lighting_intensi
         observations_cfg=ObservationCfg(),
         actions_cfg=DroidJointPositionActionCfg(),
         robot_cfg=DroidCfg,
-        camera_cfg=[*scene_cameras, EgocentricMirroredCameraCfg],
+        camera_cfg=[*scene_cameras, *([EgocentricMirroredCameraCfg] if viewport_camera else [])],
         lighting_cfg=SphereLightCfg,
         background_cfg=background_cfg,
         contact_gripper=contact_gripper,
