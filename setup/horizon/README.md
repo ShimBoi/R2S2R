@@ -57,9 +57,8 @@ Only compare evals run with the same renderer. Set `R2S2R_CARB_SETTINGS='{}'` to
 
 ## Port fixes on top of the Isaac Lab 3 migration
 
-- `RobolabDefaultEnvCfg`: `enable_external_forces_every_iteration=False` (Isaac Lab 3 changed the
-  default; False matches the Isaac Lab 2 physics).
-- Recorders write quaternions as wxyz, as before the port (Isaac Lab 3 uses xyzw).
+- Physics uses Isaac Lab 3's default `enable_external_forces_every_iteration=True`. The Isaac Lab 2
+  setup on `main` ran with False, so results from before the port aren't directly comparable.
 - `WorldState.visualize_object` converts xyzw to wxyz for the axis display.
 - RLinf registers RoboLab envs without the viewport camera, which RLinf never reads but RTX
   rendered every step (`init_params.viewport_camera`, default False).

@@ -9,27 +9,6 @@ from isaaclab.sensors import Camera
 from isaaclab.utils import configclass
 
 ########################################################################################
-# Quaternion order on disk. Isaac Lab 3 quaternions are (x, y, z, w); recorded datasets keep
-# the (w, x, y, z) order Isaac Lab 2.x wrote, so old and new recordings stay interchangeable.
-########################################################################################
-
-def _xyzw_to_wxyz(quat: torch.Tensor) -> torch.Tensor:
-    return quat[..., [3, 0, 1, 2]]
-
-
-def _scene_state_to_wxyz(state: dict) -> dict:
-    """Convert every ``root_pose`` (pos + xyzw quat) in a ``scene.get_state()`` dict to wxyz."""
-    for value in state.values():
-        if isinstance(value, dict):
-            _scene_state_to_wxyz(value)
-    if "root_pose" in state and isinstance(state["root_pose"], torch.Tensor):
-        pose = state["root_pose"].clone()
-        pose[..., 3:7] = _xyzw_to_wxyz(pose[..., 3:7])
-        state["root_pose"] = pose
-    return state
-
-
-########################################################################################
 # Recorder terms. Adapted from isaaclab.envs.mdp.recorders.recorders.
 ########################################################################################
 
@@ -68,12 +47,12 @@ class InitialStateRecorder(RecorderTerm):
             if env_ids is not None:
                 camera_poses[name] = {
                     "position": camera.data.pos_w.torch[env_ids].clone(),  # (len(env_ids), 3)
-                    "orientation": _xyzw_to_wxyz(camera.data.quat_w_ros.torch[env_ids]),  # (len(env_ids), 4) wxyz
+                    "orientation": camera.data.quat_w_ros.torch[env_ids].clone(),  # (len(env_ids), 4)
                 }
             else:
                 camera_poses[name] = {
                     "position": camera.data.pos_w.torch.clone(),  # (num_envs, 3)
-                    "orientation": _xyzw_to_wxyz(camera.data.quat_w_ros.torch),  # (num_envs, 4) wxyz
+                    "orientation": camera.data.quat_w_ros.torch.clone(),  # (num_envs, 4)
                 }
         return camera_poses
 
@@ -88,9 +67,7 @@ class InitialStateRecorder(RecorderTerm):
     def reset(self, env_ids: Sequence[int] | None = None):
         # Captures this value and returns it so that it is accessible during episodes.
         # Note, reset here is called *after* randomization and object position, so it doesn't necessarily have to be in post_reset.
-        self.initial_state = self.extract_env_ids_values(
-            _scene_state_to_wxyz(self._env.scene.get_state(is_relative=True)), env_ids
-        )
+        self.initial_state = self.extract_env_ids_values(self._env.scene.get_state(is_relative=True), env_ids)
 
         # Add camera extrinsics under 'cameras' key
         self._init_cameras()
@@ -104,7 +81,7 @@ class PostStepStatesRecorder(RecorderTerm):
     """Recorder term that records the state of the environment at the end of each step."""
 
     def record_post_step(self):
-        return "states", _scene_state_to_wxyz(self._env.scene.get_state(is_relative=True))
+        return "states", self._env.scene.get_state(is_relative=True)
 
 
 class PreStepActionsRecorder(RecorderTerm):
@@ -171,7 +148,7 @@ class PostStepEndEffectorPoseRecorder(RecorderTerm):
 
         return "ee_pose", {
             "position": ee_pos,
-            "orientation": _xyzw_to_wxyz(ee_quat),  # wxyz
+            "orientation": ee_quat,
             "linear_velocity": ee_lin_vel,
             "angular_velocity": ee_ang_vel,
         }
@@ -185,7 +162,7 @@ class InitialCameraExtrinsicsRecorder(RecorderTerm):
 
     The camera pose consists of:
     - Position (pos_w): World position of the camera (x, y, z)
-    - Orientation (quat_w_ros): World orientation (ROS camera axes), stored as (w, x, y, z)
+    - Orientation (quat_w_ros): World orientation as quaternion in ROS convention (x, y, z, w)
 
     This is useful for recording camera viewpoint at the start of each episode,
     especially when camera pose randomization is enabled.
@@ -222,12 +199,12 @@ class InitialCameraExtrinsicsRecorder(RecorderTerm):
             if env_ids is not None:
                 camera_poses[name] = {
                     "position": camera.data.pos_w.torch[env_ids].clone(),  # (len(env_ids), 3)
-                    "orientation": _xyzw_to_wxyz(camera.data.quat_w_ros.torch[env_ids]),  # (len(env_ids), 4) wxyz
+                    "orientation": camera.data.quat_w_ros.torch[env_ids].clone(),  # (len(env_ids), 4)
                 }
             else:
                 camera_poses[name] = {
                     "position": camera.data.pos_w.torch.clone(),  # (num_envs, 3)
-                    "orientation": _xyzw_to_wxyz(camera.data.quat_w_ros.torch),  # (num_envs, 4) wxyz
+                    "orientation": camera.data.quat_w_ros.torch.clone(),  # (num_envs, 4)
                 }
         return camera_poses
 
