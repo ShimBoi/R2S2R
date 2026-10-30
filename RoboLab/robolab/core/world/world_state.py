@@ -736,4 +736,6 @@ class WorldState:
         corners, centroid = self.get_bbox(object_name, env_id=env_id)
         vis_utils.visualize_bbox(corners, object_name, color='red')
         pos, quat = self.get_pose(object_name, env_id=env_id)
-        vis_utils.visualize_axes(pos.cpu().numpy().tolist(), quat.cpu().numpy().tolist(), object_name)
+        # get_pose returns xyzw (Isaac Lab 3); visualize_axes takes wxyz.
+        quat_wxyz = quat[..., [3, 0, 1, 2]]
+        vis_utils.visualize_axes(pos.cpu().numpy().tolist(), quat_wxyz.cpu().numpy().tolist(), object_name)

@@ -170,6 +170,11 @@ class RobolabDefaultEnvCfg(ManagerBasedRLEnvCfg):
             enable_ccd=True,
             bounce_threshold_velocity=0.2,
             solver_type=1,
+            # Isaac Lab 3 changed this default to True. The Isaac Lab 2.3 fork on `main` had no such
+            # field, so PhysX ran with its schema default (False). Keep False for parity: with TGS
+            # and the robot's 64 position iterations, True changes contact/grasp dynamics. Isaac
+            # Lab 3 still honors False (it only logs a DeprecationWarning).
+            enable_external_forces_every_iteration=False,
         )
         # Also set under Isaac Lab 2.x, but none of these were PhysxCfg fields there (or are
         # now), so they never took effect: contact_offset=0.02, rest_offset=0.01,

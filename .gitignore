@@ -23,3 +23,10 @@ PKG-INFO
 .claude/settings.json
 model/
 isaac_sim/
+
+# Upstream RoboLab assets, fetched by setup/horizon/fetch_robolab_assets.sh
+RoboLab/assets/robots/
+RoboLab/assets/backgrounds/
+RoboLab/assets/materials/
+RoboLab/assets/fixtures/
+.venv-il3/
