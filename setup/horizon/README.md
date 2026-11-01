@@ -15,6 +15,8 @@ apptainer build --sandbox $W/rlinf_sandbox setup/rlinf_u22.def
 bash setup/horizon/enter_container.sh bash setup/horizon/install.sh
 bash setup/horizon/enter_container.sh bash setup/horizon/fetch_robolab_assets.sh
 bash setup/horizon/enter_container.sh bash setup/horizon/get_model.sh
+# 3. DLSS Ray Reconstruction that works on driver 610 (see below)
+bash setup/horizon/fetch_dlssd.sh
 ```
 
 ## Running
@@ -48,12 +50,15 @@ Horizon nodes run driver 615 or 610, and Slurm can't tell them apart. Check with
 `nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1`.
 
 - **615:** Isaac Sim's default renderer (real-time path tracing + DLSS Ray Reconstruction).
-- **610:** NGX can't create DLSS Ray Reconstruction (`NGX CreateFeature failed: 0xbad00002`), so
-  default renders are noise and the policy gets ~0%. `enter_container.sh` detects 610 and sets
-  `R2S2R_CARB_SETTINGS` to path tracing + the OptiX denoiser. Images match 615 visually and pi0.5's
-  success rate matched, but rendering is ~2.3x slower.
+- **610:** NGX can't create Isaac Sim 6.2's DLSS Ray Reconstruction (310.7.128,
+  `NGX CreateFeature failed: 0xbad00002`), so the default renderer hangs or renders noise. Isaac
+  Sim 5.1's build (310.1.0) works. `fetch_dlssd.sh` downloads it and `enter_container.sh` mounts it
+  over the bundled one on 610 nodes. Base pi0.5 on the held-out mug task: 44.5% (615: 42-45%).
+  310.6.0 (Isaac Sim 6.0) crashes; swapping in driver 615's userspace libs fails (kernel mismatch).
 
-Only compare evals run with the same renderer. Set `R2S2R_CARB_SETTINGS='{}'` to opt out.
+If `fetch_dlssd.sh` hasn't been run, 610 nodes fall back to path tracing + the OptiX denoiser
+(`R2S2R_CARB_SETTINGS`), which matches the policy's success rate but renders ~4x slower. Only
+compare evals run with the same renderer.
 
 ## Port fixes on top of the Isaac Lab 3 migration
 

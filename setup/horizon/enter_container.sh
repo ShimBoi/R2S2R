@@ -24,12 +24,18 @@ for lib in libnvidia-rmapi-tegra libnvidia-tileiras libnvidia-present libnvidia-
                                  --bind "$f:/usr/lib/aarch64-linux-gnu/$lib.so.1")
 done
 
-# Driver 610 can't create DLSS Ray Reconstruction, which Isaac Sim's default renderer needs
-# (images come out as noise). Path tracing + the OptiX denoiser avoids NGX; it is ~2.3x slower
-# to render. Don't compare evals across renderers. Set R2S2R_CARB_SETTINGS='{}' to opt out.
-if [[ $DRV == 610.* && -z ${R2S2R_CARB_SETTINGS+x} ]]; then
+# Driver 610 can't create Isaac Sim 6.2's DLSS Ray Reconstruction (310.7.128), which the default
+# renderer needs. Isaac Sim 5.1's build (310.1.0, from fetch_dlssd.sh) works, so mount it over the
+# bundled one. Without it, fall back to path tracing + OptiX (~4x slower to render).
+DLSSD=$W/.cache/dlssd/libnvidia-ngx-dlssd.so.310.1.0
+if [[ $DRV == 610.* && -f $DLSSD ]]; then
+    for f in "$V"/lib/python3.12/site-packages/isaacsim/extscache/omni.hydra.rtx-*/bin/deps/libnvidia-ngx-dlssd.so.*; do
+        EXTRA_BINDS+=(--bind "$DLSSD:$f")
+    done
+    echo "[enter_container] driver $DRV: using DLSS-RR 310.1.0" >&2
+elif [[ $DRV == 610.* && -z ${R2S2R_CARB_SETTINGS+x} ]]; then
     export R2S2R_CARB_SETTINGS='{"/rtx/rendermode":"PathTracing","/rtx/pathtracing/spp":8,"/rtx/pathtracing/totalSpp":8,"/rtx/pathtracing/optixDenoiser/enabled":true,"/rtx/post/aa/op":0}'
-    echo "[enter_container] driver $DRV: using PathTracing + OptiX (R2S2R_CARB_SETTINGS)" >&2
+    echo "[enter_container] driver $DRV: no $DLSSD (run setup/horizon/fetch_dlssd.sh); using PathTracing + OptiX" >&2
 fi
 
 # srun/ssh shells may be pinned to one core; give the container the whole allocation.
