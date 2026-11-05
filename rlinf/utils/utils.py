@@ -729,7 +729,7 @@ def preprocess_embodied_batch(
 
         rewards = rewards.transpose(0, 1).reshape(rewards.shape[1], -1)
         reward_matrix = rewards.reshape(n_prompts, group_size, rewards.shape[-1])
-        reward_matrix = reward_matrix.sum(dim=-1)
+        reward_matrix = (reward_matrix.sum(dim=-1) > 0).float()
         mean_reward_in_group = reward_matrix.mean(dim=1)
 
         reward_filter_mask = (mean_reward_in_group >= rewards_lower_bound) & (

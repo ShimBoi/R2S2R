@@ -1156,7 +1156,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             reward_matrix = rewards.reshape(
                 n_prompts, group_size, rewards.shape[-1]
             )  # [n_prompts, group_size, n_step]
-            reward_matrix = reward_matrix.sum(dim=-1)  # [n_prompts, group_size]
+            reward_matrix = (reward_matrix.sum(dim=-1) > 0).float()  # [n_prompts, group_size]
             mean_reward_in_group = reward_matrix.mean(dim=1)  # [n_prompts]
 
             # mask
