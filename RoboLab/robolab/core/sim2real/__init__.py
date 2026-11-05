@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Sim-to-real building blocks for reconstructed scenes: a domain-randomization plan (plan.py) built from
 registered sections (builders.py, registry.py) over generic randomizers (randomizers.py), articulated fixtures
 (articulated_usd.py, fixtures.py) and start layouts (layouts.py). Scene-specific randomizers go in extras/."""

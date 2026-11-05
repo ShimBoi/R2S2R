@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Build an articulated object (lid, door, drawer, appliance) as a USD that a scene includes as a payload.
 
 Links are primitive shapes joined by revolute or prismatic joints. "root" picks how the object is simulated:

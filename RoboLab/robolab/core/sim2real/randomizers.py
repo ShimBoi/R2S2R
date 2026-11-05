@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Event functions for sim-to-real domain randomization. Each takes (env, env_ids, **params) and is wrapped
 into an EventTerm by a plan section (builders.py); a scene can also call them from its own event terms.
 

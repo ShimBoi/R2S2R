@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Built-in plan sections. Ranges are [lo, hi].
 
  "cameras": {"<sensor>": {"pos_m": 0.02, "rot_deg": 2.0}}                     per env, every reset

@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Plan sections and the builders that turn them into event terms.
 
 A builder takes the section's value from the plan and returns {term name: EventTerm}. Sections build in

@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Plan layering, registry and layouts; no simulator needed (pytest RoboLab/tests/sim2real/test_plan.py)."""
 import json
 import math

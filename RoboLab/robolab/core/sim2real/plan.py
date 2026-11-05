@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Load a randomization plan from layers and turn it into a task's event terms.
 
     events = build_events(base_terms, "lab4_scene/dr.json", {"lights": {"enabled": False}})

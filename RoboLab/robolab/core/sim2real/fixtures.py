@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Articulated scene fixtures (lids, doors, drawers, appliances) built by articulated_usd with root "fixed"
 or "floating", and included in a scene USD under {ENV_REGEX_NS}/scene/<name>.
 

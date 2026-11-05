@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Simulator check for articulated fixtures and joint randomization, with 4 cloned envs:
 - a cabinet (root "fixed": body, revolute door, prismatic drawer) and a waffle maker (root "floating" on a
   30 kg base, revolute lid with a grasp lip), both built by articulated_usd;

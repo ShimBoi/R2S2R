@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Start layouts for a reconstructed scene: preset 0 is the photographed layout, the rest are sampled, with a
 train / test split and an env switch for the photographed layout. Feed them to reset_pose_to_presets.
 
