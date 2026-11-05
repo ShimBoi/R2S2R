@@ -12,9 +12,9 @@ Checks (thresholds overridable in labels.json "limits"; pixels normalized to 128
   pattern_scale  ratio of the dominant pattern period real/sim in a box (if "pattern")  within +-5 %
 
 labels.json:
-{"ext":   {"image": "ext.png", "robot_mask": "robot_mask.png", "objects": {"bread": [722, 390], ...},
+{"ext":   {"image": "ext.png", "robot_mask": "robot_mask.png", "objects": {"obj_a": [722, 390], ...},
            "static_polys": [[[u, v], ...], ...], "color_regions": [[x0, y0, x1, y1], ...]},
- "wrist": {"image": "wrist.png", "objects": {"bread": [480, 300]}, "color_regions": [...], "pattern": true},
+ "wrist": {"image": "wrist.png", "objects": {"obj_a": [480, 300]}, "color_regions": [...], "pattern": true},
  "limits": {"robot_iou": 0.65, ...}}
 Paths are relative to labels.json. An object label is either a point (centre of the visible body, by eye) or a
 polygon [[u, v], ...] outlining the visible part; prefer polygons for large or partly occluded objects, since a

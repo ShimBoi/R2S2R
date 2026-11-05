@@ -2,7 +2,7 @@
 photographed object layout, plus a visibility mask per entity (robot and every listed object) for each camera.
 Optionally scan candidate external-camera poses (compose_ext.py output) and score each by robot-silhouette IoU
 against the real robot mask, to resolve scale / pose ambiguity.
-Run inside the container on a GPU node you own (see reference.md, "Running").
+Run in your Isaac Lab environment on a GPU (see reference.md, "Running").
 
 Entity masks come from the cameras' instance-id segmentation (prim path of each pixel); if that output is
 unavailable they fall back to rendering with and without the entity's meshes. Physics settles for --settle
@@ -10,7 +10,7 @@ steps first.
 
 Usage:
   python render_check.py --task-file t.py --task T --preset P --out DIR --joint-pos j1..j7 [--gripper 0]
-      [--entities robot bread plate lid=shell_main+top ...] [--object-poses poses.json] [--ext-fit fit.json]
+      [--entities robot obj_a obj_b lid=shell+top ...] [--object-poses poses.json] [--ext-fit fit.json]
       [--cands cands.json --real-robot-mask robot_mask.png] [--res 1280 720] [--steps 12] [--settle 90]
 An entity is a prim-path token (any prim under a prim with that name), or label=tok1+tok2 for the union of
 several (e.g. only the parts of a link that the real label outlines).

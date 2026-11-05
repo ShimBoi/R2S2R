@@ -1,5 +1,5 @@
 """Physics check for an articulated object: release the moving part at several joint positions and record where
-it settles, then render both policy cameras closed and open. Run inside the container on a GPU node you own.
+it settles, then render both policy cameras closed and open. Run in your Isaac Lab environment on a GPU.
 
 What to look for:
 - closed after settling reads ~0 (nothing overlaps or props it open)
@@ -10,10 +10,10 @@ What to look for:
 
 Usage, fixture built by robolab.core.sim2real.articulated_usd with root "fixed" / "floating" and registered with
 fixtures.articulated_fixture_cfg (the default for new objects):
-  python check_articulation.py --task-file t.py --task T --preset P --fixture waffle_maker --joint hinge \
+  python check_articulation.py --task-file t.py --task T --preset P --fixture lidded_box --joint hinge \
       [--release 40 70 85 95] [--open 100] [--steps 10 --samples 6] --out DIR
 Legacy "rigid_links" object, moving link registered as a RigidObjectCfg (its default pose is the closed pose):
-  python check_articulation.py ... --link waffle_lid --anchor x y z --axis ax ay az --out DIR
+  python check_articulation.py ... --link box_lid --anchor x y z --axis ax ay az --out DIR
 Run with ROBOLAB_DR=0 so every env starts at the same pose. Revolute values in degrees; add --prismatic for slides
 (values in metres). Writes DIR/closed_{ext,wrist}.png, DIR/open_{ext,wrist}.png, DIR/articulation.json.
 """

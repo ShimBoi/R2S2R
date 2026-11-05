@@ -10,7 +10,7 @@ along the reference camera's rays (the scale ambiguity of plane_from_camera.py).
 consistent candidate; pick the right one with the robot silhouette (render_check.py --cands) or a ruler.
 
 Usage:
-  python compose_ext.py lattice_ext.json plane.json --anchor bread:722,388 [--check-uv 1150,560]
+  python compose_ext.py lattice_ext.json plane.json --anchor obj_a:722,388 [--check-uv 1150,560]
       [--check-xyz 0 0 0.15] [--scales 0.9 0.95 1 1.05 1.1 1.15 1.2] --out cands.json
 Writes cands.json: one entry per scale {scale, period, z, pos, quat_xyzw_gl, fx, size, anchor_xyz, check_uv},
 the best yaw per scale, ready for render_check.py --cands and for render_views.py --ext-fit.

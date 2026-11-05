@@ -1,6 +1,6 @@
 """Remove things that will not exist in sim (robot, people, cables, other cameras) from a real photo and
-optionally outpaint beyond its borders, with SDXL inpainting. Needs a GPU: run it inside the container
-on a compute node you own, never on a node running someone else's job.
+optionally outpaint beyond its borders, with SDXL inpainting. Needs a GPU, diffusers and the
+SDXL inpainting weights (downloaded to HF_HOME on first use).
 
 Pixels outside the (4-px feathered) mask are copied from the original at full resolution, so nothing
 the camera actually saw gets blurred or resampled. Only the generated region comes from the diffusion

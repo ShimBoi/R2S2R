@@ -1,5 +1,5 @@
 """Replay a real robot trajectory open loop in a RoboLab task and log what the objects do.
-Run inside the container on a GPU node you own (see reference.md, "Running").
+Run in your Isaac Lab environment on a GPU (see reference.md, "Running").
 
 traj.npz: joint_position [T, 7] (measured, rad), gripper_position [T] (0 open .. 1 closed),
           optional action_joint_position [T, 7] (commanded targets; preferred when present), fps (default 15).

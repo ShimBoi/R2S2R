@@ -1,5 +1,5 @@
 """Render-and-compare camera refinement, using the robot itself as the calibration target.
-Run inside the container on a GPU node you own (see reference.md, "Running").
+Run in your Isaac Lab environment on a GPU (see reference.md, "Running").
 
 The sim robot is posed at the joint angles recorded with the real image. The camera pose (and optionally
 fx) is optimized with Nelder-Mead so that the sim robot silhouette and edges line up with the real image.

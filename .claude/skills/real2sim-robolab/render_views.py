@@ -1,5 +1,5 @@
 """Render a RoboLab task's external and wrist cameras for side-by-side comparison with real photos.
-Run inside the container on a GPU node you own (see reference.md, "Running").
+Run in your Isaac Lab environment on a GPU (see reference.md, "Running").
 
 Usage:
   python render_views.py --task-file my_task.py --task MyTask --out OUT [--preset WRIST_LAB]

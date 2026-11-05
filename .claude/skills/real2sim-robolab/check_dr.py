@@ -2,7 +2,7 @@
 photos should look like plausible members of the set, and no sample may be absurd (camera inside geometry,
 black or saturated frames, objects floating). Also places each real image in the distribution of sim image
 statistics (mean brightness and per-channel ratios) and resets twice, so per-reset resampling is visible.
-Run inside the container on a GPU node you own, with the task's DR terms on (ROBOLAB_DR unset or 1).
+Run in your Isaac Lab environment on a GPU, with the task's DR terms on (ROBOLAB_DR unset or 1).
 
 Usage:
   python check_dr.py --task-file t.py --task T --preset P --out DIR --real ext=ext.png wrist=wrist.png
