@@ -62,14 +62,14 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             from robolab.registrations.droid.auto_env_registrations_jointpos import (
                 auto_register_droid_envs,
             )
-            from robolab.registrations.droid.camera_presets import WRIST_POLARIS
-            
+            from robolab.registrations.droid import camera_presets
+
             os.environ["ROBOLAB_EVAL_ONLY"] = "1" if bool(getattr(self.cfg, "eval_only", False)) else "0"
 
             task_file = getattr(self.cfg.init_params, "task_file", None)
             auto_register_droid_envs(
                 task=task_file,
-                cameras=WRIST_POLARIS,
+                cameras=getattr(camera_presets, getattr(self.cfg.init_params, "camera_preset", "WRIST_POLARIS")),
                 viewport_camera=bool(getattr(self.cfg.init_params, "viewport_camera", False)),
             )
 
