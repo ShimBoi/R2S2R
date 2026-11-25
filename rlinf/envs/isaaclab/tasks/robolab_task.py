@@ -15,6 +15,8 @@ class NoAutoResetManagerBasedRLEnv:
     duration of each step() call so resets only happen via explicit env.reset().
     """
 
+    _end_states = None
+
     def step(self, action):
         _reset_idx = self._reset_idx
         self._reset_idx = lambda env_ids: None
@@ -22,13 +24,13 @@ class NoAutoResetManagerBasedRLEnv:
             result = super().step(action)
         finally:
             self._reset_idx = _reset_idx
-        if getattr(self, "_end_states", None) is not None:
+        if self._end_states is not None:
             self._capture_end_states()
         return result
 
     def _reset_idx(self, env_ids):
         super()._reset_idx(env_ids)
-        if getattr(self, "_end_states", None) is not None:
+        if self._end_states is not None:
             self._end_state_taken[env_ids] = False
 
     def enable_end_state_capture(self):
@@ -46,10 +48,11 @@ class NoAutoResetManagerBasedRLEnv:
     def pop_end_states(self):
         from rlinf.envs.isaaclab.tasks import end_states
 
-        chunks, self._end_states = self._end_states, []
-        if not chunks:
+        if not self._end_states:
             return None, None
-        return end_states.concat(chunks), end_states.scene_names(self.scene)
+        arrays = end_states.concat(self._end_states)
+        self._end_states = []
+        return arrays, end_states.scene_names(self.scene)
 
 
 class RoboLabDroidEnv(IsaaclabBaseEnv):
@@ -68,8 +71,8 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             total_num_processes,
             worker_info,
         )
-        self._end_state_tag = f"{seed_offset:03d}"
-        self._end_state_index = None
+        self._end_state_writer_id = f"{seed_offset:03d}"
+        self._end_state_file_number = None
 
     def flush_end_states(self):
         from rlinf.envs.isaaclab.tasks import end_states
@@ -80,10 +83,11 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
         arrays, names = self.env.call("pop_end_states")
         if arrays is None:
             return
-        if self._end_state_index is None:
-            self._end_state_index = end_states.next_index(directory, self._end_state_tag)
-        end_states.write(directory, f"{self._end_state_index:05d}_{self._end_state_tag}.npz", arrays, names)
-        self._end_state_index += 1
+        if self._end_state_file_number is None:
+            self._end_state_file_number = end_states.next_file_number(directory, self._end_state_writer_id)
+        filename = f"{self._end_state_file_number:05d}_{self._end_state_writer_id}.npz"
+        end_states.write(directory, filename, arrays, names)
+        self._end_state_file_number += 1
 
     def _make_env_function(self):
         def make_env_isaaclab():
