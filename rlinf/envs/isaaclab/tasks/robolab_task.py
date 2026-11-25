@@ -16,6 +16,7 @@ class NoAutoResetManagerBasedRLEnv:
     """
 
     _end_states = None
+    _captured_init_states = None
 
     def step(self, action):
         _reset_idx = self._reset_idx
@@ -44,6 +45,14 @@ class NoAutoResetManagerBasedRLEnv:
         if new.any():
             self._end_state_taken |= new
             self._end_states.append(end_states.capture(self.scene, new.nonzero().squeeze(-1)))
+
+    def set_captured_init_states(self, arrays, names):
+        from rlinf.envs.isaaclab.tasks import end_states
+
+        scene_names = end_states.scene_names(self.scene)
+        if names != scene_names:
+            raise ValueError(f"saved end states do not match the scene: saved {names}, scene {scene_names}")
+        self._captured_init_states = {k: torch.from_numpy(v).to(self.device) for k, v in arrays.items()}
 
     def pop_end_states(self):
         from rlinf.envs.isaaclab.tasks import end_states
@@ -141,18 +150,32 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                 (NoAutoResetManagerBasedRLEnv, ManagerBasedRLEnv),
                 {},
             )
-            init_states = self.cfg.open_ended_task_proposal.init_states_load_path
-            if init_states:
+            init_states_path = self.cfg.open_ended_task_proposal.init_states_load_path
+            captured, names = None, None
+            if init_states_path:
+                import logging
+
                 from isaaclab.managers import EventTermCfg
                 from omegaconf import OmegaConf
 
-                from rlinf.envs.isaaclab.tasks.end_states import load_init_states
+                from rlinf.envs.isaaclab.tasks import end_states
 
-                dirs = [init_states] if isinstance(init_states, str) else list(OmegaConf.to_container(init_states))
-                isaac_env_cfg.events.load_init_states = EventTermCfg(
-                    func=load_init_states, mode="reset", params={"dirs": dirs}
-                )
+                if isinstance(init_states_path, str):
+                    dirs = [init_states_path]
+                else:
+                    dirs = list(OmegaConf.to_container(init_states_path))
+                captured, names = end_states.read_success_end_states(dirs)
+                if captured is None:
+                    logging.getLogger(__name__).warning(
+                        f"no success end states in {dirs}; starting episodes from the task's own initial states"
+                    )
+                else:
+                    isaac_env_cfg.events.load_captured_init_states = EventTermCfg(
+                        func=end_states.load_captured_init_states, mode="reset"
+                    )
             env = NoAutoResetEnvCls(cfg=isaac_env_cfg)
+            if captured is not None:
+                env.set_captured_init_states(captured, names)
             if self.cfg.open_ended_task_proposal.success_end_states_save_path:
                 env.enable_end_state_capture()
             return env, sim_app

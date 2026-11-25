@@ -1,5 +1,6 @@
 import glob
 import json
+import logging
 import os
 
 import numpy as np
@@ -49,35 +50,34 @@ def next_file_number(directory, writer_id):
     return 1 + max((int(os.path.basename(f).split("_")[0]) for f in files), default=-1)
 
 
-KINDS = ("articulation", "cable_object", "deformable_object", "rigid_object", "gripper")
-
-
-def load_bank(dirs, scene, device):
-    names = scene_names(scene)
-    chunks = []
+def read_success_end_states(dirs):
+    chunks, names = [], None
     for d in dirs:
+        files = sorted(glob.glob(os.path.join(d, "*.npz")))
+        if not files:
+            logging.getLogger(__name__).warning(f"no success end states in {d}")
+            continue
         with open(os.path.join(d, "names.json")) as f:
-            saved = json.load(f)
-        if saved != names:
-            raise ValueError(f"{d}/names.json does not match the scene: saved {saved}, scene {names}")
-        for path in sorted(glob.glob(os.path.join(d, "*.npz"))):
+            dir_names = json.load(f)
+        if names is not None and dir_names != names:
+            raise ValueError(f"{d}/names.json does not match {dirs[0]}/names.json")
+        names = dir_names
+        for path in files:
             with np.load(path) as z:
                 chunks.append({k: z[k] for k in z.files})
     if not chunks:
-        raise FileNotFoundError(f"no end states in {dirs}")
-    return {k: torch.from_numpy(v).to(device) for k, v in concat(chunks).items()}
+        return None, None
+    return concat(chunks), names
 
 
-def load_init_states(env, env_ids, dirs):
-    bank = env.__dict__.get("_init_state_bank")
-    if bank is None:
-        bank = env.__dict__["_init_state_bank"] = load_bank(dirs, env.scene, env.device)
+def load_captured_init_states(env, env_ids):
+    captured = env._captured_init_states
     if env_ids is None:
         env_ids = torch.arange(env.num_envs, device=env.device)
-    n = next(iter(bank.values())).shape[0]
+    n = next(iter(captured.values())).shape[0]
     pick = torch.randint(n, (len(env_ids),), device=env.device)
-    state = {kind: {} for kind in KINDS}
-    for key, v in bank.items():
+    state = {kind: {} for kind in ("articulation", "cable_object", "deformable_object", "rigid_object", "gripper")}
+    for key, v in captured.items():
         kind, name, *field = key.split("/")
         if kind not in state:
             continue
