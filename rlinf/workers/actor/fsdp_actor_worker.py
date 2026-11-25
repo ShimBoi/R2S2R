@@ -122,6 +122,18 @@ def process_nested_dict_for_train(nested_dict, shuffle_id):
     return ret_dict
 
 
+def index_nested_dict(nested_dict, idx):
+    ret_dict = {}
+    for key, value in nested_dict.items():
+        if isinstance(value, torch.Tensor):
+            ret_dict[key] = value[idx.to(value.device)]
+        elif isinstance(value, dict):
+            ret_dict[key] = index_nested_dict(value, idx)
+        else:
+            ret_dict[key] = value
+    return ret_dict
+
+
 class FSDPActor(FSDPModelManager, Worker):
     def __init__(
         self,
@@ -1338,9 +1350,32 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                     f"{train_global_batch_size=}, {self.cfg.actor.micro_batch_size}"
                 )
 
+                micro_size = self.cfg.actor.micro_batch_size
+                if (
+                    self.cfg.algorithm.get("skip_masked_samples", False)
+                    and train_global_batch.get("loss_mask", None) is not None
+                ):
+                    valid = (
+                        train_global_batch["loss_mask"]
+                        .reshape(train_global_batch_size, -1)
+                        .any(dim=-1)
+                    )
+                    n_valid = torch.tensor([int(valid.sum())], device=self.device)
+                    torch.distributed.all_reduce(
+                        n_valid, op=torch.distributed.ReduceOp.MAX
+                    )
+                    keep = -(-max(int(n_valid.item()), 1) // micro_size) * micro_size
+                    keep = min(train_global_batch_size, keep)
+                    order = torch.argsort((~valid).to(torch.int8), stable=True)[:keep]
+                    train_global_batch = index_nested_dict(train_global_batch, order)
+                    append_to_dict(
+                        metrics,
+                        {"actor/valid_sample_frac": valid.float().mean().item()},
+                    )
+
                 train_micro_batch = split_dict_to_chunk(
                     train_global_batch,
-                    train_global_batch_size // self.cfg.actor.micro_batch_size,
+                    train_global_batch["prev_logprobs"].shape[0] // micro_size,
                 )
 
                 self.optimizer.zero_grad()
@@ -1348,7 +1383,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                     self.train_micro_batch(
                         micro_batch=batch,
                         metrics=metrics,
-                        is_last=(idx + 1) == self.gradient_accumulation,
+                        is_last=(idx + 1) == len(train_micro_batch),
                     )
                     # avoid gpu memory leak
                     train_micro_batch[idx] = None
@@ -1479,7 +1514,12 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         if self.enable_sft_co_train:
             self._train_sft_epoch(metrics_data, loss)
 
-        loss /= self.gradient_accumulation
+        if self.cfg.algorithm.get("skip_masked_samples", False):
+            loss *= advantages.shape[0] / (
+                self.cfg.actor.global_batch_size // self._world_size
+            )
+        else:
+            loss /= self.gradient_accumulation
         with backward_ctx:
             self.grad_scaler.scale(loss).backward()
 
