@@ -62,6 +62,9 @@ def _torch_worker(
                 break
             elif cmd == "device":
                 child_remote.send(isaac_env.device)
+            elif cmd == "call":
+                name, args = child_remote.recv()
+                child_remote.send(getattr(isaac_env, name)(*args))
             else:
                 child_remote.close()
                 raise NotImplementedError
@@ -115,6 +118,11 @@ class SubProcIsaacLabEnv:
         self.parent_remote.send("close")
         self.isaac_lab_process.join()
         self.isaac_lab_process.terminate()
+
+    def call(self, name, *args):
+        self.parent_remote.send("call")
+        self.parent_remote.send((name, args))
+        return self.parent_remote.recv()
 
     def device(self):
         self.parent_remote.send("device")
