@@ -790,6 +790,10 @@ class EnvWorker(Worker):
         return adjusted_rewards
 
     def finish_rollout(self, mode="train"):
+        for env in self.env_list if mode == "train" else self.eval_env_list:
+            flush = getattr(env.unwrapped, "flush_end_states", None)
+            if flush is not None:
+                flush()
         # reset
         if mode == "train":
             for i in range(self.stage_num):

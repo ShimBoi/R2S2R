@@ -8,6 +8,9 @@ group_size: 1
 
 reward_coef: 1.0
 use_fixed_reset_state_ids: False
+open_ended_task_proposal:
+  success_end_states_save_path: null
+  init_states_load_path: null
 eval_only: False  # When True, RoboLab tasks use their held-out test presets/backgrounds instead of the training pool.
 umax_steps_per_rollout_epoch: 150
 max_episode_steps: 150 # max episode steps for truncation
