@@ -74,7 +74,7 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
     def flush_end_states(self):
         from rlinf.envs.isaaclab.tasks import end_states
 
-        directory = self.cfg.get("end_states_dir", None)
+        directory = self.cfg.open_ended_task_proposal.success_end_states_save_path
         if not directory:
             return
         arrays, names = self.env.call("pop_end_states")
@@ -137,7 +137,7 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                 (NoAutoResetManagerBasedRLEnv, ManagerBasedRLEnv),
                 {},
             )
-            init_states = self.cfg.get("init_states", None)
+            init_states = self.cfg.open_ended_task_proposal.init_states_load_path
             if init_states:
                 from isaaclab.managers import EventTermCfg
                 from omegaconf import OmegaConf
@@ -149,7 +149,7 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                     func=load_init_states, mode="reset", params={"dirs": dirs}
                 )
             env = NoAutoResetEnvCls(cfg=isaac_env_cfg)
-            if self.cfg.get("end_states_dir", None):
+            if self.cfg.open_ended_task_proposal.success_end_states_save_path:
                 env.enable_end_state_capture()
             return env, sim_app
 
