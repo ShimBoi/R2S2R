@@ -137,6 +137,17 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                 (NoAutoResetManagerBasedRLEnv, ManagerBasedRLEnv),
                 {},
             )
+            init_states = self.cfg.get("init_states", None)
+            if init_states:
+                from isaaclab.managers import EventTermCfg
+                from omegaconf import OmegaConf
+
+                from rlinf.envs.isaaclab.tasks.end_states import load_init_states
+
+                dirs = [init_states] if isinstance(init_states, str) else list(OmegaConf.to_container(init_states))
+                isaac_env_cfg.events.load_init_states = EventTermCfg(
+                    func=load_init_states, mode="reset", params={"dirs": dirs}
+                )
             env = NoAutoResetEnvCls(cfg=isaac_env_cfg)
             if self.cfg.get("end_states_dir", None):
                 env.enable_end_state_capture()

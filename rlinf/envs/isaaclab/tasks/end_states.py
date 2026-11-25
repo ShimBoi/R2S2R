@@ -55,3 +55,45 @@ def write(directory, filename, arrays, names):
 def next_index(directory, tag):
     files = glob.glob(os.path.join(directory, f"*_{tag}.npz"))
     return 1 + max((int(os.path.basename(f).split("_")[0]) for f in files), default=-1)
+
+
+KINDS = ("articulation", "cable_object", "deformable_object", "rigid_object", "gripper")
+
+
+def load_bank(dirs, scene, device):
+    names = scene_names(scene)
+    chunks = []
+    for d in dirs:
+        with open(os.path.join(d, "names.json")) as f:
+            saved = json.load(f)
+        if saved != names:
+            raise ValueError(f"{d}/names.json does not match the scene: saved {saved}, scene {names}")
+        for path in sorted(glob.glob(os.path.join(d, "*.npz"))):
+            with np.load(path) as z:
+                chunks.append({k: z[k] for k in z.files})
+    if not chunks:
+        raise FileNotFoundError(f"no end states in {dirs}")
+    return {k: torch.from_numpy(v).to(device) for k, v in concat(chunks).items()}
+
+
+def load_init_states(env, env_ids, dirs):
+    bank = env.__dict__.get("_init_state_bank")
+    if bank is None:
+        bank = env.__dict__["_init_state_bank"] = load_bank(dirs, env.scene, env.device)
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=env.device)
+    n = next(iter(bank.values())).shape[0]
+    pick = torch.randint(n, (len(env_ids),), device=env.device)
+    state = {kind: {} for kind in KINDS}
+    for key, v in bank.items():
+        kind, name, *field = key.split("/")
+        if kind not in state:
+            continue
+        t = v[pick]
+        if field and field[0].endswith("velocity"):
+            t = torch.zeros_like(t)
+        if field:
+            state[kind].setdefault(name, {})[field[0]] = t
+        else:
+            state[kind][name] = t
+    env.scene.reset_to(state, env_ids, is_relative=True)
