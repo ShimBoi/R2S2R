@@ -72,7 +72,7 @@ def read_success_end_states(dirs):
 
 def load_captured_init_states(env, env_ids):
     captured = env._captured_init_states
-    if env_ids is None:
+    if env_ids is None or isinstance(env_ids, slice):
         env_ids = torch.arange(env.num_envs, device=env.device)
     n = next(iter(captured.values())).shape[0]
     pick = torch.randint(n, (len(env_ids),), device=env.device)
