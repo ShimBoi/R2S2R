@@ -1,5 +1,4 @@
 {
-  "id": "mug_on_board",
   "base_task": "mug_on_cutting_board_task.py",
   "instruction": "Pick up the coffee mug and place it on the cutting board",
   "success": {

@@ -946,6 +946,11 @@ def validate_embodied_cfg(cfg):
             assert cfg.env.train.base_config_name == "r1pro_behavior", (
                 f"Only r1pro_behavior is supported for omnigibson, got {cfg.env.train.base_config_name}"
             )
+    for env_cfg in (cfg.env.train, cfg.env.eval):
+        if SupportedEnvType(env_cfg.env_type) == SupportedEnvType.ROBOLAB and env_cfg.init_params.task_spec is not None:
+            from robolab.core.task.task_spec import load_spec, validate_spec
+
+            validate_spec(load_spec(env_cfg.init_params.task_spec), source=env_cfg.init_params.task_spec)
     return cfg
 
 
