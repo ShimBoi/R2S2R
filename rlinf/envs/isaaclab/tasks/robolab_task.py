@@ -64,21 +64,12 @@ class NoAutoResetManagerBasedRLEnv:
         return arrays, end_states.scene_names(self.scene)
 
 
-def _task_spec_path(cfg):
-    path = getattr(cfg.init_params, "task_spec", None)
-    if not path:
-        return None
-    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-    return os.path.join(repo, path)
-
-
 def _load_task_spec(cfg):
-    path = _task_spec_path(cfg)
-    if path is None:
+    if cfg.init_params.task_spec is None:
         return None
     import json
 
-    with open(path) as f:
+    with open(cfg.init_params.task_spec) as f:
         return json.load(f)
 
 
@@ -152,7 +143,7 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             if task_spec is not None:
                 from robolab.core.task import task as robolab_task_module
 
-                os.environ["ROBOLAB_TASK_SPEC"] = _task_spec_path(self.cfg)
+                os.environ["ROBOLAB_TASK_SPEC"] = self.cfg.init_params.task_spec
                 task_file = os.path.join(os.path.dirname(robolab_task_module.__file__), "generic_task.py")
             auto_register_droid_envs(
                 task=task_file,
@@ -182,8 +173,8 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                 {},
             )
             init_states_path = self.cfg.open_ended_task_proposal.init_states_load_path
-            if not init_states_path and task_spec is not None:
-                init_states_path = task_spec.get("init_states")
+            if task_spec is not None and task_spec.get("init_states"):
+                init_states_path = task_spec["init_states"]
             captured, names = None, None
             if init_states_path:
                 import logging
