@@ -104,7 +104,7 @@ def compute_evaluate_metrics(eval_metrics_list):
         shards = [_normalize_metric_shard(s) for s in all_eval_metrics[key]]
         stacked = torch.concat(shards).float()
         all_eval_metrics[key] = (
-            stacked.mean().detach().cpu().numpy()
+            stacked.nanmean().detach().cpu().numpy()
             if stacked.numel() > 0
             else np.asarray(0.0, dtype=np.float64)
         )
