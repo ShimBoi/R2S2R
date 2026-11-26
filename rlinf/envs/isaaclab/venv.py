@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import queue
+import traceback
 from multiprocessing.connection import Connection
 
 import torch
@@ -19,6 +21,12 @@ import torch.multiprocessing as mp
 import numpy as np
 
 from .utils import CloudpickleWrapper
+
+_POLL_S = 10.0
+
+
+class IsaacLabProcessError(RuntimeError):
+    pass
 
 
 def _torch_worker(
@@ -30,10 +38,10 @@ def _torch_worker(
     reset_idx_queue: mp.Queue,
 ):
     parent_remote.close()
-    env_fn = env_fn_wrapper.x
-    isaac_env, sim_app = env_fn()
-    device = isaac_env.device
+    isaac_env = None
     try:
+        isaac_env, sim_app = env_fn_wrapper.x()
+        device = isaac_env.device
         while True:
             try:
                 cmd = child_remote.recv()
@@ -70,11 +78,20 @@ def _torch_worker(
                 raise NotImplementedError
     except KeyboardInterrupt:
         child_remote.close()
-    finally:
+    except Exception:
+        error = IsaacLabProcessError(f"IsaacLab env process failed:\n{traceback.format_exc()}")
+        obs_queue.put(error)
         try:
-            isaac_env.close()
-        except Exception as e:
-            print(f"IsaacLab Env Closed with error: {e}")
+            child_remote.send(error)
+        except OSError:
+            pass
+        raise
+    finally:
+        if isaac_env is not None:
+            try:
+                isaac_env.close()
+            except Exception as e:
+                print(f"IsaacLab Env Closed with error: {e}")
 
 
 class SubProcIsaacLabEnv:
@@ -99,10 +116,40 @@ class SubProcIsaacLabEnv:
         self.isaac_lab_process.start()
         self.child_remote.close()
 
+    def _check_alive(self):
+        if not self.isaac_lab_process.is_alive():
+            raise IsaacLabProcessError(
+                f"IsaacLab env process exited with code {self.isaac_lab_process.exitcode}"
+            )
+
+    def _get_result(self):
+        while True:
+            try:
+                result = self.obs_queue.get(timeout=_POLL_S)
+                break
+            except queue.Empty:
+                if not self.isaac_lab_process.is_alive():
+                    try:
+                        result = self.obs_queue.get(timeout=1.0)
+                        break
+                    except queue.Empty:
+                        self._check_alive()
+        if isinstance(result, IsaacLabProcessError):
+            raise result
+        return result
+
+    def _recv(self):
+        while not self.parent_remote.poll(_POLL_S):
+            self._check_alive()
+        result = self.parent_remote.recv()
+        if isinstance(result, IsaacLabProcessError):
+            raise result
+        return result
+
     def reset(self, seed=None, env_ids=None):
         self.parent_remote.send("reset")
         self.reset_idx.put((env_ids, seed))
-        obs, info = self.obs_queue.get()
+        obs, info = self._get_result()
         return obs, info
 
     def step(self, action: torch.Tensor):
@@ -111,7 +158,7 @@ class SubProcIsaacLabEnv:
         """
         self.parent_remote.send("step")
         self.action_queue.put(action)
-        env_step_result = self.obs_queue.get()
+        env_step_result = self._get_result()
         return env_step_result
 
     def close(self):
@@ -122,8 +169,8 @@ class SubProcIsaacLabEnv:
     def call(self, name, *args):
         self.parent_remote.send("call")
         self.parent_remote.send((name, args))
-        return self.parent_remote.recv()
+        return self._recv()
 
     def device(self):
         self.parent_remote.send("device")
-        return self.parent_remote.recv()
+        return self._recv()
