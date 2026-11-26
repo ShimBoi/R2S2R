@@ -949,11 +949,14 @@ def validate_embodied_cfg(cfg):
     for env_cfg in (cfg.env.train, cfg.env.eval):
         if SupportedEnvType(env_cfg.env_type) != SupportedEnvType.ROBOLAB:
             continue
-        spec_path = env_cfg.init_params.task_spec
-        if spec_path is not None:
-            from robolab.core.task.task_spec import load_spec, validate_spec
+        spec_paths = env_cfg.init_params.task_spec
+        if spec_paths is not None:
+            from robolab.core.task.task_spec import validate_specs
 
-            validate_spec(load_spec(spec_path), source=spec_path)
+            names, _ = validate_specs(spec_paths)
+            if env_cfg is cfg.env.train and len(names) > 1:
+                raise ValueError("env.train.init_params.task_spec: training takes one task spec; a list of specs "
+                                 "is for eval")
     return cfg
 
 
