@@ -571,9 +571,8 @@ brighter in the photo).
 
 ### 11.1 Task file
 
-RoboLab registers environments as task files. The template keeps everything about the scene in this skill's
-hands and marks the task slot (instruction, success, episode length), which comes from the task spec. Names are
-placeholders:
+RoboLab registers environments as task files. The template keeps everything about the scene; its task slot stays
+empty, and the task comes from a task spec (below). Names are placeholders:
 
 ```python
 import math, os, random
@@ -588,7 +587,6 @@ from robolab.core.scenes.utils import import_scene
 from robolab.core.sim2real import build_events
 from robolab.core.sim2real.layouts import preset_indices, sample_layouts
 from robolab.core.sim2real.randomizers import randomize_background
-from robolab.core.task.conditionals import object_on_top, pick_and_place_on_surface
 from robolab.core.task.task import Task
 
 _SCENE = os.environ.get("MY_SCENE_SCENE", "my_scene.usda")
@@ -613,17 +611,9 @@ def _events():
     }
     return build_events(terms, "my_scene_scene/dr.json")
 
-# ---- task slot: filled from the task spec; without one keep time_out only, instruction "", subtasks None ----
 @configclass
 class MyTerminations:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
-    success = DoneTerm(func=object_on_top, params={"object": "obj_a", "reference_object": "obj_b",
-                       "gripper_name": "gripper", "require_gripper_detached": True})
-
-_INSTRUCTION = {"default": "<instruction from the task spec>"}
-_EPISODE_S = 50
-_SUBTASKS = [pick_and_place_on_surface(object=["obj_a"], surface="obj_b", logical="all", score=1.0)]
-# ---- end of task slot ----
 
 @dataclass
 class MySceneTask(Task):
@@ -631,13 +621,33 @@ class MySceneTask(Task):
     scene = import_scene(_SCENE, contact_object_list)
     terminations = MyTerminations
     events = _events
-    instruction = _INSTRUCTION
-    episode_length_s: int = _EPISODE_S
+    instruction = {"default": ""}
+    episode_length_s: int = 60
     attributes = ["semantics"]
-    subtasks = _SUBTASKS
+    subtasks = None
 ```
 
-- **Success conditions** (from the task spec). Conditionals live in `RoboLab/robolab/core/task/conditionals.py`:
+The task spec, `curriculum/specs/<task>.json`, reuses this file's scene, objects, start events and episode length:
+
+```json
+{
+  "base_task": "my_scene_task.py",
+  "instruction": "<instruction from the task spec>",
+  "success": {
+    "predicate": "object_on_top",
+    "args": {"object": "obj_a", "reference_object": "obj_b", "gripper_name": "gripper",
+             "require_gripper_detached": true}
+  }
+}
+```
+
+`init_states` (a list of saved end-state dirs) is optional. The format and its checks are in
+`RoboLab/robolab/core/task/task_spec.py`; RLinf checks the spec at startup, before any simulator starts:
+`PYTHONPATH=.:RoboLab python3 -c "from robolab.core.task.task_spec import load_spec, validate_spec;
+validate_spec(load_spec('curriculum/specs/<task>.json'))"` checks it by hand.
+
+- **Success conditions** (from the task spec). A spec's predicate comes from
+  `RoboLab/robolab/core/task/curriculum_conditionals.py`, a copy of RoboLab's `conditionals.py`:
   `object_in_container`, `object_upright`, `object_inside`, `object_left_of`, `stacked`, `object_grabbed`, and more.
   Always require the gripper to be detached for placement tasks, so that holding the object over the target does
   not count.
@@ -646,18 +656,18 @@ class MySceneTask(Task):
   `[0]` with `ROBOLAB_PHOTO_LAYOUT=1`, the test pool with `ROBOLAB_EVAL_ONLY=1`, else the train pool.
 - **Workspace bounds.** Use the real start-pose region: where the user actually places objects, intersected with
   where the real robot reaches. Keep train and test presets from the same distribution with disjoint indices.
-- **Episode length.** `episode_length_s` and RLinf `max_episode_steps` (15 Hz) must be at least the real
-  episode length. Without a spec, use a generous default (e.g. 60 s); nothing in Phases 8–10 depends on it.
+- **Episode length.** RLinf `max_episode_steps` (15 Hz) sets it and must be at least the real episode length;
+  keep the task file's `episode_length_s` at least as long (e.g. 60 s), since it ends episodes too.
 - **Instruction strings.** Use the exact string from the spec, which should be what the real policy receives.
-  Variants go in `instruction`.
-- **Several tasks in one scene.** Keep the scene, layouts and events in a shared module and give each task its
-  own file with only its task slot.
+- **Several tasks in one scene.** One task file, one spec per task.
 
 ### 11.2 RLinf configs and reward
 
-- Copy an existing RoboLab env YAML and set `init_params.id`, `task_file`, `camera_preset`, `task_description`
-  (= the instruction), and `over_shoulder_cam` / `wrist_cam` sizes (§6.4). Check key spelling against the env
-  code; unknown keys are silently ignored.
+- Copy an existing RoboLab env YAML (e.g. `env/robolab_mug_board.yaml`) and set `init_params.task_spec`
+  (`${oc.env:REPO_PATH}/curriculum/specs/<task>.json`, or null), `camera_preset`, and `over_shoulder_cam` /
+  `wrist_cam` sizes (§6.4). With a spec, the env takes its id and instruction from it. To run a hand-written
+  task file instead, set `task_spec: null` and `id`, `task_file` and `task_description`. Check key spelling
+  against the env code; unknown keys are silently ignored.
 - Copy the training YAML and point its `defaults` at the new env YAML.
 - **Reward.** `IsaaclabBaseEnv._calc_step_reward` returns `reward_coef * terminations`, or the change from the
   previous step when `use_rel_reward`. RoboLab's success termination is true on every step after success, so

@@ -13,7 +13,8 @@ in, then transferred back to the real robot. The environment must match:
 
 What the robot should do there (the instruction and the success condition) is a separate input. Today the user
 gives it; it may come from a task-proposal skill instead. This skill builds the scene, its objects and fixtures,
-start layouts and randomization, and leaves a clear slot for the task (Phase 7).
+start layouts and randomization in a task file, and writes the task itself, when there is one, as a task spec
+that runs on top of that file (Phase 7).
 
 Nothing here depends on a particular scene, object category, surface, pattern or camera model. Formulas, API
 references, object-kind guidance and snippets are in [reference.md](reference.md). The helper scripts in this
@@ -281,7 +282,9 @@ Assume no object category. For each object, follow reference.md §7:
 ## Phase 7: Environment task file
 
 The environment is registered as a RoboLab task file, `RoboLab/robolab/tasks/benchmark/<scene>_task.py`
-(template in reference.md §11). It holds everything about the scene and leaves the task itself as an input.
+(template in reference.md §11). It holds everything about the scene. The task itself (instruction and success)
+is a JSON task spec that names this file as its `base_task`; one generic task runs any spec, so a scene needs
+one task file however many tasks it has.
 
 1. **Scene and fixtures:** `import_scene(_SCENE, contact_object_list)`, every articulated fixture with
    `articulated_fixture_cfg`, and the camera preset.
@@ -296,15 +299,20 @@ The environment is registered as a RoboLab task file, `RoboLab/robolab/tasks/ben
 3. **Events** through `plan.build_events(task_terms, "<scene>_scene/dr.json")`: the background, the layout reset
    and each fixture's `reset_fixture`. `build_events` runs fixture resets after the layout reset, which would
    otherwise put fixtures back at their default pose.
-4. **The task slot.** The instruction string(s), the success condition and the episode length come from the task
-   spec: today from the user, later possibly from a task-proposal skill.
-   - With a spec: write the instruction verbatim, build the success condition from RoboLab conditionals and
-     `fixtures.joint_position` (reference.md §11), with the gripper released for placement tasks, and set the
-     episode length ≥ the real one.
-   - Without one: leave the instruction as a placeholder and the terminations as time-out only. Phases 8–10
-     do not need a task.
-5. **Configs.** Write the env and training YAMLs: `camera_preset`, `task_description` (the instruction),
-   `max_episode_steps` and `max_steps_per_rollout_epoch` at 15 Hz, and camera render sizes from Phase 2.5.
+4. **The task file's own task slot stays empty:** terminations time-out only, a placeholder instruction,
+   `subtasks = None`. Write `contact_object_list` as a literal list in the Task class, with every object a task
+   may name: the spec check reads it from the file without running it, and accepts only those names.
+5. **The task spec** (reference.md §11.1), from the user today, later possibly from a task-proposal skill:
+   `curriculum/specs/<task>.json` with `base_task` (the task file's name), the instruction verbatim, and a
+   success condition that is one predicate from `RoboLab/robolab/core/task/curriculum_conditionals.py` with
+   its arguments, with the gripper released for placement tasks.
+   - If no predicate expresses the success condition (e.g. a fixture's joint angle through
+     `fixtures.joint_position`), add one to `curriculum_conditionals.py`. Only add; never edit or remove a
+     predicate there, and leave `conditionals.py` as upstream ships it.
+   - Without a spec, write none. Phases 8–10 do not need a task.
+6. **Configs.** Write one env YAML and one training YAML per scene: `init_params.task_spec` (the spec's path, or
+   null), `camera_preset`, `max_episode_steps` and `max_steps_per_rollout_epoch` at 15 Hz, at least the real
+   episode length, and camera render sizes from Phase 2.5.
    Copy keys from a working config and check their spelling; RLinf ignores unknown keys silently.
    Use `use_rel_reward: True` for GRPO (reference.md §11.2).
 
