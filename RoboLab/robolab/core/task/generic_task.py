@@ -7,13 +7,13 @@ import isaaclab.envs.mdp as mdp
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.utils import configclass
 
-from robolab.constants import TASK_DIR
 from robolab.core.task import curriculum_conditionals
 from robolab.core.task.task import Task
-from robolab.core.task.task_utils import load_task_from_file, resolve_task_path
+from robolab.core.task.task_spec import base_task_path
+from robolab.core.task.task_utils import load_task_from_file
 
 _SPEC = json.loads(os.environ["ROBOLAB_TASK_SPEC_JSON"])
-_BASE = load_task_from_file(resolve_task_path(_SPEC["base_task"], TASK_DIR)[0])
+_BASE = load_task_from_file(str(base_task_path(_SPEC["base_task"])))
 
 
 @configclass
