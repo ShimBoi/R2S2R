@@ -71,9 +71,10 @@ def read_success_end_states(dirs):
 
 
 def load_captured_init_states(env, env_ids):
+    from robolab.core.utils.env_ids import resolve_env_ids
+
     captured = env._captured_init_states
-    if env_ids is None:
-        env_ids = torch.arange(env.num_envs, device=env.device)
+    env_ids = resolve_env_ids(env, env_ids)
     n = next(iter(captured.values())).shape[0]
     pick = torch.randint(n, (len(env_ids),), device=env.device)
     state = {kind: {} for kind in ("articulation", "cable_object", "deformable_object", "rigid_object", "gripper")}

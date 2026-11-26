@@ -30,10 +30,11 @@ class NoAutoResetManagerBasedRLEnv:
         return result
 
     def _reset_idx(self, env_ids):
+        from robolab.core.utils.env_ids import resolve_env_ids
         from robolab.core.world.world_state import get_world
 
         super()._reset_idx(env_ids)
-        get_world(self).reset_predicate_state(env_ids)
+        get_world(self).reset_predicate_state(resolve_env_ids(self, env_ids))
         if self._end_states is not None:
             self._end_state_taken[env_ids] = False
 
@@ -79,7 +80,6 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
         self._task_spec = None
         if cfg.init_params.task_spec is not None:
             from omegaconf import open_dict
-
             from robolab.core.task.task_spec import load_spec
 
             self._task_spec = load_spec(cfg.init_params.task_spec)
