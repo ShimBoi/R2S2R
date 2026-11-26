@@ -25,7 +25,7 @@ Every command goes through the container, on a compute node:
 
 ```bash
 srun -p debug -A CDA26011 -N 1 -n 1 -t 2-00:00:00 --mem=800G --pty bash
-bash setup/horizon/enter_container.sh bash examples/embodiment/eval_embodiment.sh robolab_mug_grpo_openpi_pi05 \
+bash setup/horizon/enter_container.sh bash examples/embodiment/eval_embodiment.sh robolab_mug_board_grpo_openpi_pi05 \
     runner.only_eval=True 'runner.logger.logger_backends=[tensorboard]'
 ```
 

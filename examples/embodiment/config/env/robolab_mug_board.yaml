@@ -23,9 +23,7 @@ video_cfg:
   video_base_dir: ${runner.logger.log_path}/video/train
 
 init_params:
-  id: "MugOnCuttingBoardTask"
-  task_file: "mug_on_cutting_board_task.py"
-  task_description: "Pick up the coffee mug and place it on the cutting board"
+  task_spec: "curriculum/specs/mug_on_board.json"
   num_envs: null  # filled in at runtime from total_num_envs / num_processes
 
   over_shoulder_cam:

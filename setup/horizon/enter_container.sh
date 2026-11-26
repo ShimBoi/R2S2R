@@ -1,7 +1,7 @@
 #!/bin/bash
 # Enter the container on TACC Horizon (GB200 / aarch64) with the Isaac Sim 6.2 / Isaac Lab 3.0 venv.
 # No args: interactive shell. With args: runs that command inside, e.g.
-#   bash setup/horizon/enter_container.sh bash examples/embodiment/eval_embodiment.sh robolab_mug_grpo_openpi_pi05
+#   bash setup/horizon/enter_container.sh bash examples/embodiment/eval_embodiment.sh robolab_mug_board_grpo_openpi_pi05
 #
 # Paths (override via env):
 #   R2S2R_WORKSPACE  holds the container sandbox and caches   (default: $SCRATCH/r2s2r)

@@ -1,14 +1,14 @@
 # Pass 1: run your trained policy in RoboLab and save the exact action stream via
 # the repo's existing CollectEpisode wrapper (rlinf/envs/wrappers/collect_episode.py).
-# This is `robolab_mug_grpo_openpi_pi05.yaml` (already in the repo) with:
+# This is `robolab_mug_board_grpo_openpi_pi05.yaml` (already in the repo) with:
 #   - only_eval / eval_rollout_epoch=1 (one rollout, not training)
 #   - env.eval.data_collection enabled, writing one pickle per episode
 # Nothing about how envs/rollout workers get built is changed -- same
 # EnvWorker + MultiStepRolloutWorker + Ray Cluster path as every other config here.
 
 defaults:
-  - env/robolab_mug_on_cutting_board@env.train
-  - env/robolab_mug_on_cutting_board@env.eval
+  - env/robolab_mug_board@env.train
+  - env/robolab_mug_board@env.eval
   - model/pi0_5@actor.model
   - training_backend/fsdp@actor.fsdp_config
   - weight_syncer/patch_syncer@weight_syncer
