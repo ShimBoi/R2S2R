@@ -21,11 +21,15 @@ REQUIRED = ("base_task", "instruction", "success")
 OPTIONAL = ("init_states",)
 SUCCESS_KEYS = ("predicate", "args")
 PREDICATES_FILE = Path(__file__).resolve().parent / "curriculum_conditionals.py"
+GENERIC_TASK_FILE = Path(__file__).resolve().parent / "generic_task.py"
 RESERVED_ARGS = {"env", "env_id"}
-SUBJECT_ARGS = {"object", "object1", "objects"}
-REFERENCE_ARGS = {"object2", "container", "surface", "reference_object", "reference_obj1", "reference_obj2"}
-OBJECT_ARGS = SUBJECT_ARGS | REFERENCE_ARGS | {"require_contact_with", "ignore_objects", "table_name"}
+SUBJECT_ARGS = ("object", "object1", "objects")
+REFERENCE_ARGS = ("object2", "container", "surface", "reference_object", "reference_obj1", "reference_obj2")
+ROLE_ARGS = SUBJECT_ARGS + REFERENCE_ARGS
+OBJECT_ARGS = set(ROLE_ARGS) | {"require_contact_with", "ignore_objects", "table_name"}
+MAY_BE_EMPTY = {"ignore_objects"}
 GRIPPER_ALLOWED = {"object1", "object2", "require_contact_with"}
+CONTACT_TARGET_ARGS = {"container", "reference_object"}
 CHOICES = {
     "logical": ("all", "any", "choose"),
     "mode": ("bbox", "centroid"),
@@ -39,6 +43,7 @@ FRAMES = {"world", "robot"}
 MIN_OBJECTS = {"stacked": 2, "objects_in_line": 2}
 GROUP_KEYS = ("object", "container", "tolerance", "logical", "K", "require_contact_with", "require_gripper_detached")
 GROUP_REQUIRED = ("object", "container")
+INT_LIMIT = 2**63
 
 
 def _no_duplicate_keys(pairs):
@@ -54,17 +59,20 @@ def _no_constant(name):
 
 
 def load_spec(path):
-    with open(path) as f:
-        return json.load(f, object_pairs_hook=_no_duplicate_keys, parse_constant=_no_constant)
+    try:
+        with open(path) as f:
+            return json.load(f, object_pairs_hook=_no_duplicate_keys, parse_constant=_no_constant)
+    except ValueError as e:
+        raise ValueError(f"{path}: {e}") from e
 
 
 def base_task_path(base_task):
-    if not isinstance(base_task, str) or not base_task.endswith(".py") or os.sep in base_task or any(
-            c in base_task for c in "*?["):
-        raise ValueError(f"base_task must be a task file name like name_task.py, got {base_task!r}")
-    matches = sorted(p for p in Path(TASK_DIR).rglob(base_task) if p.is_file())
+    if not isinstance(base_task, str):
+        raise ValueError(f"base_task must be a task file name, got {json.dumps(base_task)}")
+    matches = sorted(p for p in Path(TASK_DIR).rglob("*.py") if p.name == base_task)
     if len(matches) != 1:
-        raise ValueError(f"base_task {base_task}: {len(matches)} matching files under {TASK_DIR}")
+        raise ValueError(f"base_task {json.dumps(base_task)}: {len(matches)} task files with that name "
+                         f"under {TASK_DIR}")
     return matches[0]
 
 
@@ -81,19 +89,30 @@ def predicate_signatures():
     for node in ast.parse(PREDICATES_FILE.read_text()).body:
         if not isinstance(node, ast.FunctionDef) or node.name.startswith(("_", "get_")):
             continue
-        params = node.args.args
-        if not params or params[0].arg != "env":
+        a = node.args
+        if not a.args or a.args[0].arg != "env":
             continue
-        defaults = [None] * (len(params) - len(node.args.defaults)) + list(node.args.defaults)
-        out[node.name] = {p.arg: (p.annotation, d) for p, d in zip(params, defaults)}
+        if a.posonlyargs or a.kwonlyargs or a.vararg or a.kwarg:
+            out[node.name] = "uses positional-only, keyword-only or variadic parameters, which a spec cannot set"
+            continue
+        defaults = [None] * (len(a.args) - len(a.defaults)) + list(a.defaults)
+        out[node.name] = {p.arg: (p.annotation, d) for p, d in zip(a.args, defaults)}
     return out
+
+
+def _is_int(v):
+    return isinstance(v, int) and not isinstance(v, bool) and abs(v) < INT_LIMIT
+
+
+def _is_float(v):
+    return _is_int(v) or (isinstance(v, float) and math.isfinite(v))
 
 
 SIMPLE_TYPES = {
     "str": lambda v: isinstance(v, str),
     "bool": lambda v: isinstance(v, bool),
-    "int": lambda v: isinstance(v, int) and not isinstance(v, bool),
-    "float": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v),
+    "int": _is_int,
+    "float": _is_float,
     "dict": lambda v: isinstance(v, dict),
 }
 
@@ -107,11 +126,16 @@ def _matches(value, ann):
         return _matches(value, ann.left) or _matches(value, ann.right)
     if isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name):
         args = ann.slice.elts if isinstance(ann.slice, ast.Tuple) else [ann.slice]
-        if ann.value.id == "Union":
+        kind = ann.value.id
+        if kind == "Union":
             return any(_matches(value, a) for a in args)
-        if ann.value.id == "list" and len(args) == 1:
+        if kind == "Optional" and len(args) == 1:
+            return value is None or _matches(value, args[0])
+        if kind == "Literal" and all(isinstance(a, ast.Constant) for a in args):
+            return any(type(value) is type(a.value) and value == a.value for a in args)
+        if kind == "list" and len(args) == 1:
             return isinstance(value, list) and all(_matches(v, args[0]) for v in value)
-        if ann.value.id == "tuple":
+        if kind == "tuple":
             return isinstance(value, list) and len(value) == len(args) and all(
                 _matches(v, a) for v, a in zip(value, args))
     raise ValueError(f"unsupported annotation {ast.unparse(ann)}")
@@ -125,24 +149,50 @@ def _names(value):
     return []
 
 
-def _check_arg(predicate, name, value, ann, default, objects):
+def _check_arg(where, name, value, ann, default, objects):
     if value is None and isinstance(default, ast.Constant) and default.value is None:
         return []
+    if ann is None:
+        return [f"{where}: argument '{name}' has no type annotation, so a spec cannot set it"]
     try:
         if not _matches(value, ann):
-            return [f"{predicate}: argument '{name}' = {json.dumps(value)} does not match {ast.unparse(ann)}"]
+            return [f"{where}: argument '{name}' = {json.dumps(value)} does not match {ast.unparse(ann)}"]
     except ValueError as e:
-        return [f"{predicate}: argument '{name}': {e}"]
-    if name in CHOICES and value not in CHOICES[name]:
-        return [f"{predicate}: argument '{name}' must be one of {list(CHOICES[name])}, got {json.dumps(value)}"]
+        return [f"{where}: argument '{name}': {e}"]
+    is_literal = isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name) and ann.value.id == "Literal"
+    if name in CHOICES and not is_literal and value not in CHOICES[name]:
+        return [f"{where}: argument '{name}' must be one of {json.dumps(list(CHOICES[name]))}, got {json.dumps(value)}"]
     errors = []
     if name in OBJECT_ARGS and objects is not None:
-        if isinstance(value, list) and not value:
-            errors.append(f"{predicate}: argument '{name}' must not be empty")
+        names = _names(value)
+        if isinstance(value, list) and not value and name not in MAY_BE_EMPTY:
+            errors.append(f"{where}: argument '{name}' must not be empty")
+        if len(set(names)) != len(names):
+            errors.append(f"{where}: argument '{name}' lists an object more than once")
         allowed = objects | {"gripper"} if name in GRIPPER_ALLOWED else objects
-        errors += [f"{predicate}: unknown object '{n}' in {name}" for n in _names(value) if n not in allowed]
+        errors += [f"{where}: unknown object {json.dumps(n)} in {name}" for n in names if n not in allowed]
     if name == "frame_of_reference" and objects is not None and value not in objects | FRAMES:
-        errors.append(f"{predicate}: frame_of_reference must be one of {sorted(FRAMES)} or an object, got {value!r}")
+        errors.append(f"{where}: argument 'frame_of_reference' must be one of {json.dumps(sorted(FRAMES))} "
+                      f"or an object, got {json.dumps(value)}")
+    return errors
+
+
+def _check_roles(where, args, params):
+    errors = []
+    seen = {}
+    for k in ROLE_ARGS:
+        for n in set(_names(args.get(k))):
+            if n in seen:
+                errors.append(f"{where}: {json.dumps(n)} is given as both {seen[n]} and {k}")
+            else:
+                seen[n] = k
+    contact = args.get("require_contact_with")
+    subjects = {n for k in SUBJECT_ARGS for n in _names(args.get(k))}
+    errors += [f"{where}: require_contact_with names {json.dumps(n)}, which is the object itself"
+               for n in sorted(subjects & set(_names(contact)))]
+    if contact is True and not CONTACT_TARGET_ARGS & set(params):
+        errors.append(f"{where}: require_contact_with true needs a container or reference_object, which this "
+                      f"predicate has none of")
     return errors
 
 
@@ -158,12 +208,13 @@ def _check_groups(groups, params, objects):
         for k, v in group.items():
             if k in GROUP_KEYS:
                 errors += _check_arg(where, k, v, params[k][0], params[k][1], objects)
+        errors += _check_roles(where, group, params)
     return errors
 
 
 def _check_success(success, objects):
     if not isinstance(success, dict) or set(success) != set(SUCCESS_KEYS):
-        return [f"success must have exactly the keys {list(SUCCESS_KEYS)}"]
+        return [f"success must have exactly the keys {json.dumps(list(SUCCESS_KEYS))}"]
     predicate, args = success["predicate"], success["args"]
     if not isinstance(predicate, str):
         return [f"success.predicate must be a predicate name, got {json.dumps(predicate)}"]
@@ -172,8 +223,10 @@ def _check_success(success, objects):
     signatures = predicate_signatures()
     params = signatures.get(predicate)
     if params is None:
-        return [f"unknown predicate '{predicate}'"]
-    errors = [f"{predicate}: {k} cannot be set in a spec" for k in args if k in RESERVED_ARGS]
+        return [f"unknown predicate {json.dumps(predicate)}"]
+    if isinstance(params, str):
+        return [f"{predicate}: {params}"]
+    errors = [f"{predicate}: argument '{k}' cannot be set in a spec" for k in args if k in RESERVED_ARGS]
     errors += [f"{predicate}: unknown argument '{k}'" for k in args if k not in params]
     errors += [f"{predicate}: missing argument '{k}'" for k, (_, default) in params.items()
                if k not in RESERVED_ARGS and default is None and k not in args]
@@ -183,9 +236,7 @@ def _check_success(success, objects):
     minimum = MIN_OBJECTS.get(predicate, 0)
     if isinstance(args.get("objects"), list) and len(args["objects"]) < minimum:
         errors.append(f"{predicate}: needs at least {minimum} objects")
-    subjects = {n for k in SUBJECT_ARGS & set(args) for n in _names(args[k])}
-    references = {n for k in REFERENCE_ARGS & set(args) for n in _names(args[k])}
-    errors += [f"{predicate}: '{n}' is both the object and the reference" for n in sorted(subjects & references)]
+    errors += _check_roles(predicate, args, params)
     if predicate == "object_groups_in_containers" and isinstance(args.get("groups"), list):
         if not args["groups"]:
             errors.append(f"{predicate}: groups must not be empty")

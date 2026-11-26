@@ -139,10 +139,10 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             if self._task_spec is not None:
                 import json
 
-                from robolab.core.task import task_spec
+                from robolab.core.task.task_spec import GENERIC_TASK_FILE
 
                 os.environ["ROBOLAB_TASK_SPEC_JSON"] = json.dumps(self._task_spec)
-                task_file = os.path.join(os.path.dirname(task_spec.__file__), "generic_task.py")
+                task_file = str(GENERIC_TASK_FILE)
             auto_register_droid_envs(
                 task=task_file,
                 cameras=getattr(camera_presets, getattr(self.cfg.init_params, "camera_preset", "WRIST_POLARIS")),
