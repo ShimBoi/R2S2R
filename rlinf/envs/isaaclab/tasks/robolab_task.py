@@ -98,7 +98,7 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             self._env_spec = spec_of_env(num_envs, len(self._task_specs))
             with open_dict(cfg):
                 cfg.init_params.id = "GenericTask"
-                cfg.init_params.task_description = self._task_specs[0]["instruction"]
+                cfg.init_params.task_description = None
         super().__init__(
             cfg,
             num_envs,
