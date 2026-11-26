@@ -1,0 +1,9 @@
+{
+  "base_task": "mug_on_cutting_board_task.py",
+  "instruction": "Pick up the coffee mug and place it on the cutting board",
+  "success": {
+    "predicate": "object_on_top",
+    "args": {"object": "ceramic_mug", "reference_object": "cutting_board_a", "gripper_name": "gripper",
+             "require_gripper_detached": true}
+  }
+}

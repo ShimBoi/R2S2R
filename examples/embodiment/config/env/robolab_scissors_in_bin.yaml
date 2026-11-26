@@ -24,6 +24,7 @@ video_cfg:
 init_params:
   id: "ScissorsInBinTask"
   task_file: "scissors_in_bin_task.py"
+  task_spec: null
   task_description: "Pick up the scissors and place them in the bin"
   num_envs: null  # filled in at runtime from total_num_envs / num_processes
 

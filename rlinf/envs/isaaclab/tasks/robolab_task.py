@@ -30,7 +30,11 @@ class NoAutoResetManagerBasedRLEnv:
         return result
 
     def _reset_idx(self, env_ids):
+        from robolab.core.utils.env_ids import resolve_env_ids
+        from robolab.core.world.world_state import get_world
+
         super()._reset_idx(env_ids)
+        get_world(self).reset_predicate_state(resolve_env_ids(self, env_ids))
         if self._end_states is not None:
             self._end_state_taken[env_ids] = False
 
@@ -73,6 +77,15 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
         total_num_processes,
         worker_info,
     ):
+        self._task_spec = None
+        if cfg.init_params.task_spec is not None:
+            from omegaconf import open_dict
+            from robolab.core.task.task_spec import load_spec
+
+            self._task_spec = load_spec(cfg.init_params.task_spec)
+            with open_dict(cfg):
+                cfg.init_params.id = "GenericTask"
+                cfg.init_params.task_description = self._task_spec["instruction"]
         super().__init__(
             cfg,
             num_envs,
@@ -123,6 +136,13 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             os.environ["ROBOLAB_EVAL_ONLY"] = "1" if bool(getattr(self.cfg, "eval_only", False)) else "0"
 
             task_file = getattr(self.cfg.init_params, "task_file", None)
+            if self._task_spec is not None:
+                import json
+
+                from robolab.core.task.task_spec import GENERIC_TASK_FILE
+
+                os.environ["ROBOLAB_TASK_SPEC_JSON"] = json.dumps(self._task_spec)
+                task_file = str(GENERIC_TASK_FILE)
             auto_register_droid_envs(
                 task=task_file,
                 cameras=getattr(camera_presets, getattr(self.cfg.init_params, "camera_preset", "WRIST_POLARIS")),
@@ -151,20 +171,24 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                 {},
             )
             init_states_path = self.cfg.open_ended_task_proposal.init_states_load_path
+            init_states_from_spec = self._task_spec is not None and "init_states" in self._task_spec
+            if init_states_from_spec:
+                init_states_path = self._task_spec["init_states"]
             captured, names = None, None
             if init_states_path:
                 import logging
 
                 from isaaclab.managers import EventTermCfg
-                from omegaconf import OmegaConf
 
                 from rlinf.envs.isaaclab.tasks import end_states
 
                 if isinstance(init_states_path, str):
                     dirs = [init_states_path]
                 else:
-                    dirs = list(OmegaConf.to_container(init_states_path))
+                    dirs = list(init_states_path)
                 captured, names = end_states.read_success_end_states(dirs)
+                if captured is None and init_states_from_spec:
+                    raise ValueError(f"no success end states in the task spec's init_states {dirs}")
                 if captured is None:
                     logging.getLogger(__name__).warning(
                         f"no success end states in {dirs}; starting episodes from the task's own initial states"
@@ -249,6 +273,8 @@ def main():
 
         "max_steps_per_rollout_epoch": 210,
 
+        "open_ended_task_proposal": {"success_end_states_save_path": None, "init_states_load_path": None},
+
         "video_cfg": {
 
             "save_video": False,
@@ -266,6 +292,7 @@ def main():
             "id": "MugOnCuttingBoardTask",
 
             "task_file": "mug_on_cutting_board_task.py",
+            "task_spec": None,
 
             "num_envs": None,
 
