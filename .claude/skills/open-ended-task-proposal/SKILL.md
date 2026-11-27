@@ -58,7 +58,13 @@ Paths are relative to the repository root (the one containing `RoboLab/`).
   Rephrasing a task is not a new task. Tasks proposed from other nodes are not duplicates: they start from
   different states, and their rates are evidence of how hard a similar task is here.
 - **Success uses a predicate from the menu**, with arguments that mean what the instruction says. Placement
-  tasks set `require_gripper_detached: true`, so holding the object over the target does not count. If no
+  tasks set `require_gripper_detached: true`, so holding the object over the target does not count.
+- **Success is what a person would judge from the instruction**, neither looser nor stricter. Read how the
+  predicate is computed before using it. A check that also passes for something else (touching for
+  "grab", pressing for "push") is too loose. A check that adds conditions the words do not say (a narrow cone
+  for "in front of", lifting measured from the board the object rests on, so carrying it off the board fails
+  "pick up") is too strict; measure a lift from the table. If no choice of arguments makes the task honest
+  from this node's start states, drop the task rather than bend the check. If no
   predicate fits, you may add one to `curriculum_conditionals.py`: add only, never edit or delete an existing
   one, and say so in `notes`.
 - **Prefer tasks whose end states open useful next steps**, so the tree grows into chains.
