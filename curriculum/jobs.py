@@ -51,10 +51,22 @@ def evaluate(spec, out, ckpt=None, episodes=320, epochs=4, env_workers=4, save_s
     return {"script": EVAL_SCRIPT, "config": config, "overrides": overrides, "out": str(out)}
 
 
-def train(spec, out, steps, ckpt=None, save_every=5, config=CONFIG):
-    """`steps` GRPO steps on one spec from LoRA `ckpt` (None: a fresh LoRA); saves a checkpoint every
-    `save_every` steps and at the last one, and the end states of successful rollouts, under `out`."""
-    overrides = _common(out, ckpt) + [
+TRAIN_RECIPE = [
+    "env.train.total_num_envs=512",
+    "algorithm.rollout_epoch=1",
+    "actor.global_batch_size=2048",
+    "actor.micro_batch_size=16",
+    "algorithm.update_epoch=4",
+    "algorithm.filter_rewards=True",
+    "env.train.use_rel_reward=True",
+]
+
+
+def train(spec, out, steps=25, ckpt=None, save_every=5, config=CONFIG):
+    """`steps` GRPO steps on one spec from LoRA `ckpt` (None: a fresh LoRA) with TRAIN_RECIPE, the recipe of
+    the bread-on-plate finetune; saves a checkpoint every `save_every` steps and at the last one, and the end
+    states of successful rollouts, under `out`."""
+    overrides = _common(out, ckpt) + TRAIN_RECIPE + [
         f"env.train.init_params.task_spec=[{spec}]",
         f"runner.max_epochs={steps}",
         f"runner.save_interval={min(save_every, steps)}",
