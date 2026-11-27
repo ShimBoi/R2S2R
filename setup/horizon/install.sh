@@ -34,7 +34,7 @@ $PIP -c $W/il3_constraints.txt --no-deps -e "$R"
 $PIP -c $W/il3_constraints.txt \
     "ray[default]>=2.47.0" "hydra-core==1.3.2" "datasets==3.6.0" torchdata scipy accelerate debugpy einops nvitop \
     pybind11 ninja pytest gsutil huggingface_hub icmplib "wandb>=0.19,<0.25.1" tensorboard \
-    sortedcontainers peft timm "imageio[ffmpeg]" gymnasium gym omegaconf
+    sortedcontainers "peft==0.18.1" timm "imageio[ffmpeg]" gymnasium gym omegaconf
 $PIP -c $W/il3_constraints.txt -r "$R/requirements/embodied/envs/common.txt" || true
 
 # 3. openpi (RLinf fork). Its torch 2.7.1 / numpy<2 / jax pins conflict with Isaac Lab 3, so install
