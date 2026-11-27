@@ -643,8 +643,8 @@ The task spec, `curriculum/specs/<task>.json`, reuses this file's scene, objects
 
 `init_states` (a list of saved end-state dirs) is optional. The format and its checks are in
 `RoboLab/robolab/core/task/task_spec.py`; RLinf checks the spec at startup, before any simulator starts:
-`PYTHONPATH=.:RoboLab python3 -c "from robolab.core.task.task_spec import load_spec, validate_spec;
-validate_spec(load_spec('curriculum/specs/<task>.json'))"` checks it by hand.
+`PYTHONPATH=.:RoboLab python3 -c "from robolab.core.task.task_spec import validate_specs;
+validate_specs(['curriculum/specs/<task>.json'])"` checks it by hand.
 
 - **Success conditions** (from the task spec). A spec's predicate comes from
   `RoboLab/robolab/core/task/curriculum_conditionals.py`, a copy of RoboLab's `conditionals.py`:
@@ -664,10 +664,17 @@ validate_spec(load_spec('curriculum/specs/<task>.json'))"` checks it by hand.
 ### 11.2 RLinf configs and reward
 
 - Copy an existing RoboLab env YAML (e.g. `env/robolab_mug_board.yaml`) and set `init_params.task_spec`
-  (`${oc.env:REPO_PATH}/curriculum/specs/<task>.json`, or null), `camera_preset`, and `over_shoulder_cam` /
-  `wrist_cam` sizes (§6.4). With a spec, the env takes its id and instruction from it. To run a hand-written
-  task file instead, set `task_spec: null` and `id`, `task_file` and `task_description`. Check key spelling
-  against the env code; unknown keys are silently ignored.
+  (`["${oc.env:REPO_PATH}/curriculum/specs/<task>.json"]`, or null), `camera_preset`, and `over_shoulder_cam` /
+  `wrist_cam` sizes (§6.4). `task_spec` is always a list; a bare string fails at startup. With a spec, the env
+  takes its id and instruction from it. To run a hand-written task file instead, set `task_spec: null` and `id`,
+  `task_file` and `task_description`. Check key spelling against the env code; unknown keys are silently ignored.
+- **Several specs in one eval.** `env.eval.init_params.task_spec` can list several specs on the same base task.
+  Each env worker's envs are split into equal contiguous blocks, one per spec, in list order, so the envs per
+  worker must divide by the number of specs (checked at startup). Each env gets its own spec's instruction,
+  success condition and start states. Eval logs `success_once/<spec file name>` per spec besides the overall
+  `success_once`, and saved end states go to `<success_end_states_save_path>/<spec file name>/`. Training
+  takes a single spec.
+- `open_ended_task_proposal.init_states_load_path`, when set, is also a list of end-state dirs.
 - Copy the training YAML and point its `defaults` at the new env YAML.
 - **Reward.** `IsaaclabBaseEnv._calc_step_reward` returns `reward_coef * terminations`, or the change from the
   previous step when `use_rel_reward`. RoboLab's success termination is true on every step after success, so
