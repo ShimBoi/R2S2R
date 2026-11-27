@@ -104,10 +104,13 @@ def compute_evaluate_metrics(eval_metrics_list):
         shards = [_normalize_metric_shard(s) for s in all_eval_metrics[key]]
         stacked = torch.concat(shards).float()
         all_eval_metrics[key] = (
-            stacked.nanmean().detach().cpu().numpy()
+            stacked.mean().detach().cpu().numpy()
             if stacked.numel() > 0
             else np.asarray(0.0, dtype=np.float64)
         )
+    for key in [k for k in all_eval_metrics if k.startswith("spec_envs/")]:
+        name = key.removeprefix("spec_envs/")
+        all_eval_metrics[f"success_once/{name}"] = all_eval_metrics[f"success_once/{name}"] / all_eval_metrics.pop(key)
 
     # Add total trajectory count to metrics
     all_eval_metrics["num_trajectories"] = sum(trajectory_counts)

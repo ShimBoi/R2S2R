@@ -246,9 +246,8 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
         infos = super()._record_metrics(step_reward, terminations, infos)
         if self._spec_names is not None and len(self._spec_names) > 1:
             for name, mask in zip(self._spec_names, self._spec_masks):
-                infos["episode"][f"success_once/{name}"] = torch.where(
-                    mask, self.success_once.float(), torch.full_like(self.success_once, float("nan"), dtype=torch.float)
-                )
+                infos["episode"][f"success_once/{name}"] = (self.success_once & mask).float()
+                infos["episode"][f"spec_envs/{name}"] = mask.float()
         return infos
 
     def step(self, actions=None, auto_reset=True):

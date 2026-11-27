@@ -6,7 +6,7 @@ A spec is a JSON file:
   success      {"predicate": <function in curriculum_conditionals>, "args": {...}}
   init_states  optional; end-state dirs to start episodes from, default the base task's own start events
 
-A run takes one spec or a list of specs on the same base task. The envs of each env worker are split into
+A run takes a list of one or more specs on the same base task. The envs of each env worker are split into
 equal contiguous blocks, one per spec, in list order (spec_of_env).
 
 validate_spec needs only the standard library, so a spec can be checked before any simulator starts.
@@ -281,9 +281,9 @@ def validate_spec(spec, source="spec"):
 
 
 def load_specs(paths):
-    paths = [paths] if isinstance(paths, str) else list(paths)
-    if not paths:
-        raise ValueError("task_spec must name at least one spec")
+    if isinstance(paths, str) or not paths:
+        raise ValueError("task_spec must be a non-empty list of spec paths")
+    paths = list(paths)
     names = [Path(p).stem for p in paths]
     duplicates = sorted({n for n in names if names.count(n) > 1})
     if duplicates:
@@ -292,7 +292,6 @@ def load_specs(paths):
 
 
 def validate_specs(paths):
-    paths = [paths] if isinstance(paths, str) else list(paths)
     names, specs = load_specs(paths)
     for path, spec in zip(paths, specs):
         validate_spec(spec, source=path)
