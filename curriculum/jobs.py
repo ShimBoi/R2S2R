@@ -51,13 +51,13 @@ def evaluate(spec, out, ckpt=None, episodes=320, epochs=4, env_workers=4, save_s
     return {"script": EVAL_SCRIPT, "config": config, "overrides": overrides, "out": str(out)}
 
 
-def train(spec, out, steps, ckpt=None, config=CONFIG):
-    """`steps` GRPO steps on one spec from LoRA `ckpt` (None: a fresh LoRA); saves the last checkpoint and the
-    end states of successful rollouts under `out`."""
+def train(spec, out, steps, ckpt=None, save_every=5, config=CONFIG):
+    """`steps` GRPO steps on one spec from LoRA `ckpt` (None: a fresh LoRA); saves a checkpoint every
+    `save_every` steps and at the last one, and the end states of successful rollouts, under `out`."""
     overrides = _common(out, ckpt) + [
         f"env.train.init_params.task_spec=[{spec}]",
         f"runner.max_epochs={steps}",
-        f"runner.save_interval={steps}",
+        f"runner.save_interval={min(save_every, steps)}",
         f"env.train.open_ended_task_proposal.success_end_states_save_path={Path(out) / 'end_states'}",
     ]
     return {"script": TRAIN_SCRIPT, "config": config, "overrides": overrides, "out": str(out)}
