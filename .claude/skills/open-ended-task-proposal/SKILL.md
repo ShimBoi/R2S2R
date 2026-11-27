@@ -50,10 +50,13 @@ Paths are relative to the repository root (the one containing `RoboLab/`).
   or one trained to a high eval.
 - **Not out of reach.** Avoid tasks far beyond anything the policy has shown, such as a long sequence or a
   precise insertion when simple placements still screen low. Prefer the next step up from what it can do.
-- **Do not repeat or undo the path.** Nothing already on any of the node's paths, and nothing that reverses a
-  step on them: after "put the mug on the cutting board" then "pick up the mug", not "put the mug back on the
-  cutting board".
-- **Nothing already on the tree**, including blocked tasks. Rephrasing a task is not a new task.
+- **Do not repeat the path.** Nothing that is already a task on any of the node's paths, in any wording: after
+  "put the mug on the cutting board" then "pick up the mug", not "put the mug back on the cutting board".
+  Undoing a step is fine when the result is a task the path has not done: after "put the mug on the cutting
+  board", "put the mug on the table" is a new task.
+- **Nothing already proposed from this node**, or from a node merged into it, including blocked tasks.
+  Rephrasing a task is not a new task. Tasks proposed from other nodes are not duplicates: they start from
+  different states, and their rates are evidence of how hard a similar task is here.
 - **Success uses a predicate from the menu**, with arguments that mean what the instruction says. Placement
   tasks set `require_gripper_detached: true`, so holding the object over the target does not count. If no
   predicate fits, you may add one to `curriculum_conditionals.py`: add only, never edit or delete an existing
