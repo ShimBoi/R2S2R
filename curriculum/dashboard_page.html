@@ -1,0 +1,295 @@
+<meta name="dash-one-writer">
+<meta name="dash-form" content="dashboard">
+<style>
+.cr{display:grid;gap:var(--cds-gap-xl);font-variant-numeric:tabular-nums}
+.cr h1{font:400 var(--cds-font-size-title)/1.1 var(--font-anthropic-serif);margin:0}
+.cr h2{font-size:var(--cds-font-size-heading);font-weight:var(--cds-font-weight-medium);margin:0 0 var(--cds-gap-sm)}
+.cr .lede{margin:var(--cds-gap-xs) 0 0;color:var(--color-fg-muted)}
+.cr .muted{color:var(--color-fg-muted)}
+.cr .card{background:var(--color-panel);border:1px solid var(--color-border-line);border-radius:var(--cds-radius);padding:var(--cds-pad-lg);min-width:0}
+.cr .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5em,1fr));gap:var(--cds-gap-md)}
+.cr .kpi .v{font:400 var(--cds-font-size-title)/1.1 var(--font-anthropic-serif);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cr .kpi .l{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.cr .kpi .s{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin-top:2px}
+.cr .treewrap{overflow-x:auto;margin-inline:calc(-1*var(--cds-pad-lg));padding-inline:var(--cds-pad-lg)}
+.cr .treebox svg{display:block}
+.cr .treebox text{font-size:var(--cds-font-size-caption);fill:var(--cds-text-secondary)}
+.cr .treebox .ti{font-size:var(--cds-font-size-body);fill:var(--color-fg)}
+.cr .levels{display:grid;gap:var(--cds-gap-md)}
+.cr .lvl{display:grid;gap:var(--cds-gap-xs)}
+.cr .lvl-h{display:flex;flex-wrap:wrap;gap:var(--cds-gap-sm);align-items:baseline}
+.cr .lvl-h b{font-weight:var(--cds-font-weight-medium)}
+.cr .from{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.cr .trow{display:grid;grid-template-columns:1.1em minmax(0,1fr) 7.5em 4.2em 3em;gap:var(--cds-gap-sm);align-items:center;padding:6px 0;border-top:1px solid var(--color-border-line)}
+.cr .dot{width:.7em;height:.7em;border-radius:50%}
+.cr .ins{overflow-wrap:anywhere}
+.cr .ins .st{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.cr .bar{position:relative;height:8px;border-radius:4px;background:var(--cds-chart-grid)}
+.cr .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
+.cr .bar s{position:absolute;top:-3px;bottom:-3px;width:1px;left:50%;background:var(--cds-chart-reference)}
+.cr .num{text-align:right;white-space:nowrap;font-size:var(--cds-font-size-caption)}
+.cr .end{font-size:var(--cds-font-size-caption);white-space:nowrap}
+.cr .legend{display:flex;flex-wrap:wrap;gap:var(--cds-gap-md);font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin-top:var(--cds-gap-sm)}
+.cr .legend span{display:inline-flex;gap:6px;align-items:center}
+.cr .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:var(--cds-gap-md)}
+.cr .chart{position:relative;min-height:240px}
+.cr .chart svg{display:block;width:100%}
+.cr .chart text{fill:var(--cds-text-secondary);font-size:var(--cds-font-size-caption)}
+.cr .tip{position:absolute;pointer-events:none;background:var(--cds-surface-popover);border:1px solid var(--cds-border);box-shadow:var(--cds-shadow-popover);border-radius:var(--cds-radius);padding:6px 8px;font-size:var(--cds-font-size-caption);white-space:nowrap}
+.cr .nodes{display:grid;gap:6px}
+.cr .node{display:grid;grid-template-columns:2.6em minmax(0,1fr) auto;gap:var(--cds-gap-sm);padding:6px 0;border-top:1px solid var(--color-border-line);align-items:baseline}
+.cr .node .p{overflow-wrap:anywhere}
+.cr .scroll{overflow-x:auto}
+.cr table{border-collapse:collapse;width:100%;font-size:var(--cds-font-size-caption)}
+.cr th,.cr td{text-align:left;padding:6px 8px;border-top:1px solid var(--color-border-line);vertical-align:top}
+.cr th{color:var(--color-fg-muted);font-weight:var(--cds-font-weight-medium);white-space:nowrap}
+.cr td.n,.cr th.n{text-align:right;white-space:nowrap}
+.cr .ev{display:grid;grid-template-columns:5.2em 7.5em minmax(0,1fr);gap:var(--cds-gap-sm);padding:5px 0;border-top:1px solid var(--color-border-line);font-size:var(--cds-font-size-caption)}
+.cr .ev .d{overflow-wrap:anywhere;color:var(--color-fg-muted)}
+.cr .err{color:var(--color-bad)}
+@media(max-width:520px){.cr .trow{grid-template-columns:1.1em minmax(0,1fr) 4.2em 3em}.cr .trow .bar{display:none}.cr .ev{grid-template-columns:4.6em minmax(0,1fr)}.cr .ev .k{display:none}}
+</style>
+
+<div class="cr">
+  <header id="head">
+    <h1>Curriculum run <span data-draw="runid" data-source="status" data-field="run_id">—</span></h1>
+    <p class="lede" data-draw="lede" data-source="status" data-field="stage">—</p>
+  </header>
+
+  <section class="kpis" id="kpis">
+    <div class="card kpi"><div class="l">Stage</div><div class="v" data-draw="k-stage" data-source="status" data-field="stage" data-row="0">—</div><div class="s" data-draw="k-active">—</div></div>
+    <div class="card kpi"><div class="l">Level</div><div class="v"><span data-draw="k-level" data-source="status" data-field="level" data-row="0">—</span><span class="muted"> of </span><span data-draw="k-depth" data-source="status" data-field="max_depth" data-row="0">—</span></div><div class="s">k tasks trained per level: <span data-draw="k-k" data-source="status" data-field="k" data-row="0">—</span></div></div>
+    <div class="card kpi"><div class="l">Last event</div><div class="v" data-draw="k-age">—</div><div class="s" data-draw="k-last" data-source="status" data-field="last_event" data-row="0">—</div></div>
+    <div class="card kpi"><div class="l">GPU hold left</div><div class="v"><span data-draw="k-hold" data-source="status" data-field="hold_left_hours" data-row="0">—</span><span class="muted"> h</span></div><div class="s">At export time</div></div>
+    <div class="card kpi"><div class="l">Errors</div><div class="v" data-draw="k-err" data-source="status" data-field="errors" data-row="0">—</div><div class="s" data-draw="k-exported">—</div></div>
+  </section>
+
+  <section class="card" id="tree">
+    <h2>Curriculum tree</h2>
+    <p class="muted" style="margin:0 0 var(--cds-gap-sm)">Each level proposes tasks from the nodes reached so far, screens them over 16 episodes and trains the ones closest to 50%. Circles are nodes; cards are the tasks proposed from them, and a trained or mastered task leads on to the node it reaches. Scroll sideways for deeper levels.</p>
+    <div class="treewrap"><div class="treebox" data-draw="tree" data-source="tasks nodes"></div></div>
+    <div class="legend" data-draw="legend"></div>
+  </section>
+
+  <section class="two">
+    <div class="card" id="curves">
+      <h2>Training success by step</h2>
+      <div class="chart" data-draw="curves" data-source="steps"></div>
+    </div>
+    <div class="card" id="nodes">
+      <h2>Nodes</h2>
+      <p class="muted" style="margin:0 0 var(--cds-gap-sm)">A node is the states reached by its incoming tasks; its path is the instructions from the start.</p>
+      <div class="nodes" data-draw="nodes" data-source="nodes"></div>
+    </div>
+  </section>
+
+  <section class="card" id="table">
+    <h2>All tasks</h2>
+    <div class="scroll">
+      <table data-source="tasks" data-row-key="id">
+        <thead><tr><th data-field="id">Task</th><th data-field="level" class="n">Level</th><th data-field="start_node">From</th><th data-field="instruction">Instruction</th><th data-field="difficulty_guess" class="n">Guess</th><th data-field="screen_successes" class="n">Screen</th><th data-field="train_last" class="n">Train</th><th data-field="eval_rate" class="n">Eval</th><th data-field="status">Status</th><th data-field="end_node">Node</th></tr></thead>
+        <tbody data-draw="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="events">
+    <h2>Recent events</h2>
+    <div data-draw="events" data-source="events"></div>
+  </section>
+</div>
+
+<script>
+{
+  const pick = (key) => ({description: 'Picks the ' + key + ' rows out of the run snapshot.', fn: ({answer}) => answer[key]});
+  for (const k of ['status', 'tasks', 'steps', 'nodes', 'events']) dash.loader(k, pick(k));
+
+  const STATUS = {
+    trained: ['Trained', 'var(--color-ok)'], training: ['Training', dash.colors[0]], picked: ['Picked', dash.colors[0]],
+    mastered: ['Mastered', 'var(--color-ok)'], blocked: ['Blocked', 'var(--color-bad)'], not_picked: ['Not picked', 'var(--cds-chart-muted)'],
+    cut: ['Cut', 'var(--cds-chart-muted)'], screened: ['Screened', 'var(--color-fg-muted)'], proposed: ['Proposed', 'var(--color-fg-muted)']
+  };
+  const label = (s) => (STATUS[s] || [s])[0];
+  const color = (s) => (STATUS[s] || [0, 'var(--color-fg-muted)'])[1];
+  const pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';
+  const time = d3.timeFormat('%b %-d %H:%M');
+  const ago = (iso) => {
+    const m = Math.round((Date.now() - new Date(iso)) / 60000);
+    return m < 60 ? m + ' min ago' : m < 1440 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'm ago' : Math.floor(m / 1440) + 'd ago';
+  };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const row0 = () => { const s = dash.data('status'); return s.status === 'ok' && s.data.length ? s.data[0] : null; };
+  const txt = (name, f) => dash.draw(name, (e) => { const r = row0(); e.textContent = r ? f(r) : '—'; });
+
+  txt('runid', (r) => r.run_id);
+  txt('lede', (r) => {
+    const base = 'Level ' + r.level + ' of ' + r.max_depth + ', ' + r.stage + (r.active_task ? ' ' + r.active_task : '');
+    return base + '. ' + r.tasks + ' tasks proposed, ' + r.nodes + ' nodes. Last event ' + ago(r.last_event_at) + '.';
+  });
+  txt('k-stage', (r) => r.stage);
+  txt('k-active', (r) => r.active_task ? 'Task ' + r.active_task : 'No task training');
+  txt('k-level', (r) => r.level);
+  txt('k-depth', (r) => r.max_depth);
+  txt('k-k', (r) => r.k);
+  txt('k-age', (r) => ago(r.last_event_at));
+  txt('k-last', (r) => r.last_event.replace(/_/g, ' ') + ', ' + time(new Date(r.last_event_at)));
+  txt('k-hold', (r) => r.hold_left_hours == null ? '—' : r.hold_left_hours);
+  dash.draw('k-err', (e) => { const r = row0(); e.textContent = r ? r.errors : '—'; e.classList.toggle('err', !!(r && r.errors)); });
+  txt('k-exported', (r) => 'Exported ' + time(new Date(r.exported_at)));
+
+  dash.draw('legend', (e) => {
+    e.replaceChildren(...['training', 'trained', 'mastered', 'blocked', 'not_picked', 'cut'].map((s) => {
+      const sp = el('span'); const d = el('i', 'dot'); d.style.background = color(s); sp.append(d, label(s)); return sp;
+    }));
+  });
+
+  dash.draw('tree', (e) => {
+    const t = dash.data('tasks'), nd = dash.data('nodes');
+    if (t.status !== 'ok' || nd.status !== 'ok') { e.textContent = (t.status === 'error' || nd.status === 'error') ? 'The tree failed to load.' : '—'; return; }
+    const ROW = 70, NODE = 64, TASK = 320, CARD = TASK - 34;
+    const order = {training: 0, trained: 0, picked: 0, mastered: 1, not_picked: 2, screened: 2, proposed: 2, blocked: 3, cut: 4};
+    const placed = new Set();
+    const build = (id) => {
+      placed.add(id);
+      const kids = t.data.filter((r) => r.start_node === id)
+        .sort((a, b) => (order[a.status] ?? 2) - (order[b.status] ?? 2) || (b.screen_rate ?? -1) - (a.screen_rate ?? -1));
+      return {kind: 'node', id, children: kids.map((r) => ({kind: 'task', r, children: r.end_node && !placed.has(r.end_node) ? [build(r.end_node)] : []}))};
+    };
+    const root = d3.hierarchy(build('s0'));
+    d3.tree().nodeSize([ROW, 1]).separation((a, b) => (a.data.kind === 'node' || b.data.kind === 'node') ? 1.2 : 1)(root);
+    const colX = (d) => Math.floor(d / 2) * (NODE + TASK) + (d % 2 ? NODE : 0);
+    const nodesAll = root.descendants();
+    const x0 = d3.min(nodesAll, (d) => d.x), x1 = d3.max(nodesAll, (d) => d.x);
+    const pad = 22, H = x1 - x0 + ROW + pad, maxD = d3.max(nodesAll, (d) => d.depth);
+    const W = colX(maxD) + (maxD % 2 ? TASK : NODE) + 8;
+    const Y = (d) => d.x - x0 + ROW / 2 + pad / 2;
+    const left = (d) => colX(d.depth) + (d.data.kind === 'node' ? NODE / 2 - 15 : 0);
+    const right = (d) => d.data.kind === 'node' ? colX(d.depth) + NODE / 2 + 15 : colX(d.depth) + CARD;
+    const svg = d3.create('svg').attr('width', W).attr('height', H).attr('viewBox', [0, 0, W, H]).attr('role', 'img')
+      .attr('aria-label', 'Curriculum tree: nodes and the tasks proposed from each, coloured by status');
+    const link = d3.linkHorizontal().x((p) => p[0]).y((p) => p[1]);
+    svg.append('g').selectAll('path').data(root.links()).join('path')
+      .attr('d', (l) => link({source: [right(l.source), Y(l.source)], target: [left(l.target), Y(l.target)]}))
+      .attr('fill', 'none').style('stroke', (l) => l.target.data.kind === 'task' ? color(l.target.data.r.status) : 'var(--cds-chart-axis)')
+      .attr('stroke-width', (l) => l.target.data.kind === 'node' || ['trained', 'training', 'picked'].includes(l.target.data.r.status) ? 2 : 1)
+      .attr('stroke-opacity', (l) => l.target.data.kind === 'task' && ['not_picked', 'cut', 'screened', 'proposed'].includes(l.target.data.r.status) ? 0.5 : 1);
+    const byNode = new Map(nodesAll.filter((d) => d.data.kind === 'node').map((d) => [d.data.id, d]));
+    const extra = nodesAll.filter((d) => d.data.kind === 'task' && d.data.r.end_node && !d.children);
+    svg.append('g').selectAll('path').data(extra).join('path')
+      .attr('d', (d) => { const n = byNode.get(d.data.r.end_node); return link({source: [right(d), Y(d)], target: [left(n), Y(n)]}); })
+      .attr('fill', 'none').style('stroke', (d) => color(d.data.r.status)).attr('stroke-width', 2).attr('stroke-dasharray', '4 3');
+    const ng = svg.append('g').selectAll('g').data(nodesAll.filter((d) => d.data.kind === 'node')).join('g')
+      .attr('transform', (d) => `translate(${colX(d.depth) + NODE / 2},${Y(d)})`);
+    ng.append('circle').attr('r', 15).style('fill', 'var(--color-bg)').style('stroke', 'var(--color-fg)').attr('stroke-width', 1.5);
+    ng.append('text').attr('text-anchor', 'middle').attr('dy', '0.35em').text((d) => d.data.id).style('fill', 'var(--color-fg)');
+    const tg = svg.append('g').selectAll('g').data(nodesAll.filter((d) => d.data.kind === 'task')).join('g')
+      .attr('transform', (d) => `translate(${colX(d.depth)},${Y(d) - (ROW - 10) / 2})`)
+      .style('opacity', (d) => ['cut'].includes(d.data.r.status) ? 0.6 : 1);
+    tg.append('rect').attr('width', CARD).attr('height', ROW - 10).attr('rx', 6).style('fill', 'var(--color-bg)').style('stroke', (d) => color(d.data.r.status))
+      .attr('stroke-width', (d) => ['trained', 'training', 'picked'].includes(d.data.r.status) ? 1.5 : 1);
+    tg.append('rect').attr('width', 4).attr('height', ROW - 10).attr('rx', 2).style('fill', (d) => color(d.data.r.status));
+    tg.append('text').attr('class', 'ti').attr('x', 12).attr('y', 18).text((d) => d.data.r.instruction).style('fill', 'var(--color-fg)');
+    tg.append('text').attr('class', 'ti ti2').attr('x', 12).attr('y', 35).style('fill', 'var(--color-fg)');
+    tg.append('text').attr('class', 'meta').attr('x', 12).attr('y', 52).text((d) => {
+      const r = d.data.r;
+      const bits = [r.id, label(r.status)];
+      if (r.screen_n) bits.push(r.screen_successes + '/' + r.screen_n);
+      if (r.train_steps_done) bits.push(Math.round(r.train_first * 100) + '→' + pct(r.train_last));
+      if (r.eval_rate != null) bits.push('eval ' + pct(r.eval_rate));
+      return bits.join(' · ');
+    });
+    e.replaceChildren(svg.node());
+    const max = CARD - 18;
+    const clip = (node, full) => {
+      node.textContent = full;
+      if (node.getComputedTextLength() <= max) return;
+      let lo = 0, hi = full.length;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; node.textContent = full.slice(0, mid) + '…'; if (node.getComputedTextLength() <= max) lo = mid; else hi = mid - 1; }
+      node.textContent = full.slice(0, lo) + '…';
+    };
+    svg.selectAll('g > g').each(function () {
+      const [t1, t2] = this.querySelectorAll('.ti');
+      const meta = this.querySelector('.meta');
+      if (meta) clip(meta, meta.textContent);
+      if (!t1) return;
+      const words = t1.textContent.split(' ');
+      let n = words.length;
+      t1.textContent = words.join(' ');
+      while (n > 1 && t1.getComputedTextLength() > max) { n -= 1; t1.textContent = words.slice(0, n).join(' '); }
+      const rest = words.slice(n).join(' ');
+      if (rest) clip(t2, rest); else { t2.textContent = ''; t1.setAttribute('y', 26); meta.setAttribute('y', 45); }
+    });
+  });
+
+  dash.draw('curves', (e) => {
+    const s = dash.data('steps');
+    if (s.status !== 'ok') { e.textContent = s.status === 'error' ? 'Training steps failed to load.' : '—'; return; }
+    if (!s.data.length) { e.replaceChildren(el('p', 'muted', 'No training steps yet.')); return; }
+    const W = e.clientWidth || 400, H = 240, m = {t: 10, r: 46, b: 28, l: 36};
+    const series = d3.groups(s.data, (r) => r.task);
+    const maxStep = d3.max(s.data, (r) => r.step);
+    const x = d3.scaleLinear([1, Math.max(2, maxStep)], [m.l, W - m.r]);
+    const y = d3.scaleLinear([0, 1], [H - m.b, m.t]);
+    const svg = d3.create('svg').attr('viewBox', [0, 0, W, H]).attr('role', 'img').attr('aria-label', 'Training success rate per step for each trained task');
+    svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).tickValues(d3.range(1, Math.max(2, maxStep) + 1).filter((v, i, a) => i % Math.ceil(a.length / (W < 400 ? 5 : 10)) === 0)).tickFormat(d3.format('d')).tickSizeOuter(0)).call((g) => g.select('.domain').attr('stroke', 'var(--cds-chart-axis)')).call((g) => g.selectAll('line').attr('stroke', 'var(--cds-chart-axis)'));
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickFormat(d3.format('.0%')).tickSize(-(W - m.l - m.r))).call((g) => g.select('.domain').remove()).call((g) => g.selectAll('line').attr('stroke', 'var(--cds-chart-grid)'));
+    const line = d3.line((r) => x(r.step), (r) => y(r.success));
+    const tasks = dash.data('tasks').data || [];
+    const active = new Set(tasks.filter((t) => t.status === 'training').map((t) => t.id));
+    series.forEach(([task, rows], i) => {
+      const c = dash.colors[i % dash.colors.length];
+      const g = svg.append('g');
+      g.append('path').attr('d', line(rows)).attr('fill', 'none').style('stroke', c).attr('stroke-width', active.has(task) ? 3 : 2);
+      g.selectAll('circle').data(rows).join('circle').attr('cx', (r) => x(r.step)).attr('cy', (r) => y(r.success)).attr('r', 3.5).style('fill', c);
+      const last = rows[rows.length - 1];
+      g.append('text').attr('x', x(last.step) + 6).attr('y', y(last.success) + 4).text(task).style('fill', c);
+    });
+    const tip = el('div', 'tip'); tip.hidden = true;
+    const byTask = new Map(tasks.map((t) => [t.id, t.instruction]));
+    svg.on('pointermove', (ev) => {
+      const [px, py] = d3.pointer(ev);
+      const best = d3.least(s.data, (r) => Math.hypot(x(r.step) - px, y(r.success) - py));
+      if (!best || Math.hypot(x(best.step) - px, y(best.success) - py) > 30) { tip.hidden = true; return; }
+      tip.textContent = best.task + ' step ' + best.step + ': ' + pct(best.success) + ' · ' + (byTask.get(best.task) || '');
+      tip.hidden = false;
+      const left = Math.min(Math.max(0, x(best.step) - tip.offsetWidth / 2), W - tip.offsetWidth);
+      tip.style.left = left + 'px'; tip.style.top = Math.max(0, y(best.success) - 40) + 'px';
+    }).on('pointerleave', () => { tip.hidden = true; });
+    e.replaceChildren(svg.node(), tip);
+  });
+
+  dash.draw('nodes', (e) => {
+    const n = dash.data('nodes');
+    if (n.status !== 'ok') { e.textContent = n.status === 'error' ? 'Nodes failed to load.' : '—'; return; }
+    e.replaceChildren(...n.data.map((r) => {
+      const d = el('div', 'node');
+      d.append(el('b', null, r.id), el('div', 'p', r.path + (r.paths > 1 ? ' (+' + (r.paths - 1) + ' more paths)' : '')),
+        el('span', 'muted', r.level === 0 ? 'start layouts' : 'from ' + r.incoming));
+      return d;
+    }));
+  });
+
+  dash.draw('rows', (tb) => {
+    const t = dash.data('tasks');
+    if (t.status !== 'ok') { tb.replaceChildren(); return; }
+    tb.replaceChildren(...t.data.map((r) => {
+      const tr = document.createElement('tr');
+      const cells = [r.id, r.level, r.start_node, r.instruction, r.difficulty_guess ?? '—', r.screen_n ? r.screen_successes + '/' + r.screen_n : '—', pct(r.train_last), pct(r.eval_rate), label(r.status), r.end_node || ''];
+      cells.forEach((v, i) => { const td = el('td', [1, 4, 5, 6, 7].includes(i) ? 'n' : null, String(v)); if (i === 8) td.style.color = color(r.status); tr.append(td); });
+      return tr;
+    }));
+  });
+
+  dash.draw('events', (e) => {
+    const ev = dash.data('events');
+    if (ev.status !== 'ok') { e.textContent = ev.status === 'error' ? 'Events failed to load.' : '—'; return; }
+    e.replaceChildren(...ev.data.map((r) => {
+      const d = el('div', 'ev');
+      const k = el('span', 'k' + (r.event === 'error' ? ' err' : ''), r.event.replace(/_/g, ' '));
+      const what = [r.task, r.node && r.event === 'proposed' ? 'from ' + r.node : null, r.detail].filter(Boolean).join(' · ');
+      d.append(el('span', 'muted', time(new Date(r.t))), k, el('span', 'd', what || (r.level != null ? 'level ' + r.level : '')));
+      return d;
+    }));
+  });
+}
+</script>
