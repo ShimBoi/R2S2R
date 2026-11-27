@@ -1,5 +1,4 @@
 """The generic task: runs the task specs given as a JSON list in ROBOLAB_TASK_SPEC_JSON (see robolab.core.task.task_spec)."""
-import inspect
 import json
 import os
 from dataclasses import dataclass
@@ -18,17 +17,10 @@ _SPECS = json.loads(os.environ["ROBOLAB_TASK_SPEC_JSON"])
 _BASE = load_task_from_file(str(base_task_path(_SPECS[0]["base_task"])))
 
 
-def _spec_args(i, success):
-    args = dict(success["args"])
-    if "key" in inspect.signature(getattr(curriculum_conditionals, success["predicate"])).parameters:
-        args["key"] = f"spec{i}::{success['predicate']}::{json.dumps(success['args'], sort_keys=True)}"
-    return args
-
-
 def specs_success(env, successes):
     out = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     for i, success in enumerate(successes):
-        result = getattr(curriculum_conditionals, success["predicate"])(env, **_spec_args(i, success))
+        result = getattr(curriculum_conditionals, success["predicate"])(env, **success["args"])
         out = torch.where(env._env_spec == i, torch.as_tensor(result, dtype=torch.bool, device=env.device), out)
     return out
 
