@@ -310,8 +310,8 @@ one task file however many tasks it has.
      `fixtures.joint_position`), add one to `curriculum_conditionals.py`. Only add; never edit or remove a
      predicate there, and leave `conditionals.py` as upstream ships it.
    - Without a spec, write none. Phases 8–10 do not need a task.
-6. **Configs.** Write one env YAML and one training YAML per scene: `init_params.task_spec` (the spec's path, or
-   null), `camera_preset`, `max_episode_steps` and `max_steps_per_rollout_epoch` at 15 Hz, at least the real
+6. **Configs.** Write one env YAML and one training YAML per scene: `init_params.task_spec` (a list holding
+   the spec's path, or null), `camera_preset`, `max_episode_steps` and `max_steps_per_rollout_epoch` at 15 Hz, at least the real
    episode length, and camera render sizes from Phase 2.5.
    Copy keys from a working config and check their spelling; RLinf ignores unknown keys silently.
    Use `use_rel_reward: True` for GRPO (reference.md §11.2).
