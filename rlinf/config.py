@@ -949,11 +949,20 @@ def validate_embodied_cfg(cfg):
     for env_cfg in (cfg.env.train, cfg.env.eval):
         if SupportedEnvType(env_cfg.env_type) != SupportedEnvType.ROBOLAB:
             continue
-        spec_path = env_cfg.init_params.task_spec
-        if spec_path is not None:
-            from robolab.core.task.task_spec import load_spec, validate_spec
+        load_path = env_cfg.open_ended_task_proposal.init_states_load_path
+        if load_path is not None and (
+            not OmegaConf.is_list(load_path) or not all(isinstance(d, str) for d in load_path)
+        ):
+            raise ValueError("open_ended_task_proposal.init_states_load_path must be a list of end-state dirs")
+        spec_paths = env_cfg.init_params.task_spec
+        if spec_paths is not None:
+            from robolab.core.task.task_spec import spec_of_env, validate_specs
 
-            validate_spec(load_spec(spec_path), source=spec_path)
+            names, _ = validate_specs(spec_paths)
+            spec_of_env(env_cfg.total_num_envs // env_world_size // stage_num, len(names))
+            if env_cfg is cfg.env.train and len(names) > 1:
+                raise ValueError("env.train.init_params.task_spec: training takes one task spec; a list of specs "
+                                 "is for eval")
     return cfg
 
 

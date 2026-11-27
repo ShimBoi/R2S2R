@@ -38,8 +38,12 @@ class NoAutoResetManagerBasedRLEnv:
         if self._end_states is not None:
             self._end_state_taken[env_ids] = False
 
+    def set_env_spec(self, env_spec):
+        self._env_spec = torch.tensor(env_spec, device=self.device)
+        self._num_specs = max(env_spec) + 1
+
     def enable_end_state_capture(self):
-        self._end_states = []
+        self._end_states = [[] for _ in range(self._num_specs)]
         self._end_state_taken = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
     def _capture_end_states(self):
@@ -48,24 +52,30 @@ class NoAutoResetManagerBasedRLEnv:
         new = self.termination_manager.get_term("success") & ~self._end_state_taken
         if new.any():
             self._end_state_taken |= new
-            self._end_states.append(end_states.capture(self.scene, new.nonzero().squeeze(-1)))
+            for i in range(self._num_specs):
+                ids = (new & (self._env_spec == i)).nonzero().squeeze(-1)
+                if len(ids):
+                    self._end_states[i].append(end_states.capture(self.scene, ids))
 
-    def set_captured_init_states(self, arrays, names):
+    def set_captured_init_states(self, pools, names):
         from rlinf.envs.isaaclab.tasks import end_states
 
         scene_names = end_states.scene_names(self.scene)
-        if names != scene_names:
-            raise ValueError(f"saved end states do not match the scene: saved {names}, scene {scene_names}")
-        self._captured_init_states = {k: torch.from_numpy(v).to(self.device) for k, v in arrays.items()}
+        self._captured_init_states = []
+        for arrays, pool_names in zip(pools, names):
+            if arrays is None:
+                self._captured_init_states.append(None)
+                continue
+            if pool_names != scene_names:
+                raise ValueError(f"saved end states do not match the scene: saved {pool_names}, scene {scene_names}")
+            self._captured_init_states.append({k: torch.from_numpy(v).to(self.device) for k, v in arrays.items()})
 
     def pop_end_states(self):
         from rlinf.envs.isaaclab.tasks import end_states
 
-        if not self._end_states:
-            return None, None
-        arrays = end_states.concat(self._end_states)
-        self._end_states = []
-        return arrays, end_states.scene_names(self.scene)
+        out = [end_states.concat(chunks) if chunks else None for chunks in self._end_states]
+        self._end_states = [[] for _ in range(self._num_specs)]
+        return out, end_states.scene_names(self.scene)
 
 
 class RoboLabDroidEnv(IsaaclabBaseEnv):
@@ -77,15 +87,18 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
         total_num_processes,
         worker_info,
     ):
-        self._task_spec = None
+        self._task_specs = None
+        self._spec_names = None
+        self._env_spec = [0] * num_envs
         if cfg.init_params.task_spec is not None:
             from omegaconf import open_dict
-            from robolab.core.task.task_spec import load_spec
+            from robolab.core.task.task_spec import load_specs, spec_of_env
 
-            self._task_spec = load_spec(cfg.init_params.task_spec)
+            self._spec_names, self._task_specs = load_specs(cfg.init_params.task_spec)
+            self._env_spec = spec_of_env(num_envs, len(self._task_specs))
             with open_dict(cfg):
                 cfg.init_params.id = "GenericTask"
-                cfg.init_params.task_description = self._task_spec["instruction"]
+                cfg.init_params.task_description = None
         super().__init__(
             cfg,
             num_envs,
@@ -93,8 +106,14 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             total_num_processes,
             worker_info,
         )
+        if self._task_specs is None:
+            self.task_descriptions = [self.task_description] * self.num_envs
+        else:
+            self.task_descriptions = [self._task_specs[i]["instruction"] for i in self._env_spec]
+        self._spec_masks = [torch.tensor(self._env_spec, device=self.device) == i
+                            for i in range(max(self._env_spec) + 1)]
         self._end_state_writer_id = f"{seed_offset:03d}"
-        self._end_state_file_number = None
+        self._end_state_file_numbers = {}
 
     def flush_end_states(self):
         from rlinf.envs.isaaclab.tasks import end_states
@@ -102,14 +121,17 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
         directory = self.cfg.open_ended_task_proposal.success_end_states_save_path
         if not directory:
             return
-        arrays, names = self.env.call("pop_end_states")
-        if arrays is None:
-            return
-        if self._end_state_file_number is None:
-            self._end_state_file_number = end_states.next_file_number(directory, self._end_state_writer_id)
-        filename = f"{self._end_state_file_number:05d}_{self._end_state_writer_id}.npz"
-        end_states.write(directory, filename, arrays, names)
-        self._end_state_file_number += 1
+        pools, names = self.env.call("pop_end_states")
+        for i, arrays in enumerate(pools):
+            if arrays is None:
+                continue
+            spec_dir = directory if len(pools) == 1 else os.path.join(directory, self._spec_names[i])
+            if spec_dir not in self._end_state_file_numbers:
+                self._end_state_file_numbers[spec_dir] = end_states.next_file_number(
+                    spec_dir, self._end_state_writer_id)
+            filename = f"{self._end_state_file_numbers[spec_dir]:05d}_{self._end_state_writer_id}.npz"
+            end_states.write(spec_dir, filename, arrays, names)
+            self._end_state_file_numbers[spec_dir] += 1
 
     def _make_env_function(self):
         def make_env_isaaclab():
@@ -136,12 +158,12 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             os.environ["ROBOLAB_EVAL_ONLY"] = "1" if bool(getattr(self.cfg, "eval_only", False)) else "0"
 
             task_file = getattr(self.cfg.init_params, "task_file", None)
-            if self._task_spec is not None:
+            if self._task_specs is not None:
                 import json
 
                 from robolab.core.task.task_spec import GENERIC_TASK_FILE
 
-                os.environ["ROBOLAB_TASK_SPEC_JSON"] = json.dumps(self._task_spec)
+                os.environ["ROBOLAB_TASK_SPEC_JSON"] = json.dumps(self._task_specs)
                 task_file = str(GENERIC_TASK_FILE)
             auto_register_droid_envs(
                 task=task_file,
@@ -170,36 +192,39 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
                 (NoAutoResetManagerBasedRLEnv, ManagerBasedRLEnv),
                 {},
             )
-            init_states_path = self.cfg.open_ended_task_proposal.init_states_load_path
-            init_states_from_spec = self._task_spec is not None and "init_states" in self._task_spec
-            if init_states_from_spec:
-                init_states_path = self._task_spec["init_states"]
-            captured, names = None, None
-            if init_states_path:
-                import logging
+            import logging
 
-                from isaaclab.managers import EventTermCfg
+            from isaaclab.managers import EventTermCfg
 
-                from rlinf.envs.isaaclab.tasks import end_states
+            from rlinf.envs.isaaclab.tasks import end_states
 
-                if isinstance(init_states_path, str):
-                    dirs = [init_states_path]
-                else:
+            config_init_states = self.cfg.open_ended_task_proposal.init_states_load_path
+            sources = [(config_init_states, False)]
+            if self._task_specs is not None:
+                sources = [(spec["init_states"], True) if "init_states" in spec else (config_init_states, False)
+                           for spec in self._task_specs]
+            pools, pool_names = [], []
+            for init_states_path, init_states_from_spec in sources:
+                captured, names = None, None
+                if init_states_path:
                     dirs = list(init_states_path)
-                captured, names = end_states.read_success_end_states(dirs)
-                if captured is None and init_states_from_spec:
-                    raise ValueError(f"no success end states in the task spec's init_states {dirs}")
-                if captured is None:
-                    logging.getLogger(__name__).warning(
-                        f"no success end states in {dirs}; starting episodes from the task's own initial states"
-                    )
-                else:
-                    isaac_env_cfg.events.load_captured_init_states = EventTermCfg(
-                        func=end_states.load_captured_init_states, mode="reset"
-                    )
+                    captured, names = end_states.read_success_end_states(dirs)
+                    if captured is None:
+                        if init_states_from_spec:
+                            raise ValueError(f"no success end states in the task spec's init_states {dirs}")
+                        logging.getLogger(__name__).warning(
+                            f"no success end states in {dirs}; starting episodes from the task's own initial states"
+                        )
+                pools.append(captured)
+                pool_names.append(names)
+            if any(p is not None for p in pools):
+                isaac_env_cfg.events.load_captured_init_states = EventTermCfg(
+                    func=end_states.load_captured_init_states, mode="reset"
+                )
             env = NoAutoResetEnvCls(cfg=isaac_env_cfg)
-            if captured is not None:
-                env.set_captured_init_states(captured, names)
+            env.set_env_spec(self._env_spec)
+            if any(p is not None for p in pools):
+                env.set_captured_init_states(pools, pool_names)
             if self.cfg.open_ended_task_proposal.success_end_states_save_path:
                 env.enable_end_state_capture()
             return env, sim_app
@@ -214,8 +239,16 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             "main_images":      obs["image_obs"]["over_shoulder_left_camera"],
             "wrist_images":     obs["image_obs"]["wrist_cam"],
             "states":           states,
-            "task_descriptions": [self.task_description] * self.num_envs,
+            "task_descriptions": self.task_descriptions,
         }
+
+    def _record_metrics(self, step_reward, terminations, infos):
+        infos = super()._record_metrics(step_reward, terminations, infos)
+        if self._spec_names is not None and len(self._spec_names) > 1:
+            for name, mask in zip(self._spec_names, self._spec_masks):
+                infos["episode"][f"success_once/{name}"] = (self.success_once & mask).float()
+                infos["episode"][f"spec_envs/{name}"] = mask.float()
+        return infos
 
     def step(self, actions=None, auto_reset=True):
         obs, _, terminations, truncations, infos = self.env.step(actions)

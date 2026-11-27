@@ -71,9 +71,16 @@ def read_success_end_states(dirs):
 
 
 def load_captured_init_states(env, env_ids):
-    captured = env._captured_init_states
     if env_ids is None or isinstance(env_ids, slice):
         env_ids = torch.arange(env.num_envs, device=env.device)
+    env_ids = torch.as_tensor(env_ids, device=env.device)
+    for i, captured in enumerate(env._captured_init_states):
+        ids = env_ids[env._env_spec[env_ids] == i]
+        if captured is not None and len(ids):
+            _reset_from(env, captured, ids)
+
+
+def _reset_from(env, captured, env_ids):
     n = next(iter(captured.values())).shape[0]
     pick = torch.randint(n, (len(env_ids),), device=env.device)
     state = {kind: {} for kind in ("articulation", "cable_object", "deformable_object", "rigid_object", "gripper")}

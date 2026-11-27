@@ -6,6 +6,9 @@ A spec is a JSON file:
   success      {"predicate": <function in curriculum_conditionals>, "args": {...}}
   init_states  optional; end-state dirs to start episodes from, default the base task's own start events
 
+A run takes a list of one or more specs on the same base task. The envs of each env worker are split into
+equal contiguous blocks, one per spec, in list order (spec_of_env).
+
 validate_spec needs only the standard library, so a spec can be checked before any simulator starts.
 """
 import ast
@@ -275,3 +278,30 @@ def validate_spec(spec, source="spec"):
         errors += _check_init_states(spec["init_states"])
     if errors:
         raise ValueError(f"{source}: " + "; ".join(errors))
+
+
+def load_specs(paths):
+    if isinstance(paths, str) or not paths:
+        raise ValueError("task_spec must be a non-empty list of spec paths")
+    paths = list(paths)
+    names = [Path(p).stem for p in paths]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise ValueError(f"task_spec: more than one spec file named {duplicates}")
+    return names, [load_spec(p) for p in paths]
+
+
+def validate_specs(paths):
+    names, specs = load_specs(paths)
+    for path, spec in zip(paths, specs):
+        validate_spec(spec, source=path)
+    base_tasks = sorted({spec["base_task"] for spec in specs})
+    if len(base_tasks) > 1:
+        raise ValueError(f"task_spec: all specs in a run must share one base_task, got {base_tasks}")
+    return names, specs
+
+
+def spec_of_env(num_envs, num_specs):
+    if num_envs % num_specs:
+        raise ValueError(f"{num_envs} envs per env worker cannot be split evenly over {num_specs} task specs")
+    return [i // (num_envs // num_specs) for i in range(num_envs)]
