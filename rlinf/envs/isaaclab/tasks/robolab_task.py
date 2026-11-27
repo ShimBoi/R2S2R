@@ -207,14 +207,11 @@ class RoboLabDroidEnv(IsaaclabBaseEnv):
             for init_states_path, init_states_from_spec in sources:
                 captured, names = None, None
                 if init_states_path:
-                    if isinstance(init_states_path, str):
-                        dirs = [init_states_path]
-                    else:
-                        dirs = list(init_states_path)
+                    dirs = list(init_states_path)
                     captured, names = end_states.read_success_end_states(dirs)
-                    if captured is None and init_states_from_spec:
-                        raise ValueError(f"no success end states in the task spec's init_states {dirs}")
                     if captured is None:
+                        if init_states_from_spec:
+                            raise ValueError(f"no success end states in the task spec's init_states {dirs}")
                         logging.getLogger(__name__).warning(
                             f"no success end states in {dirs}; starting episodes from the task's own initial states"
                         )
